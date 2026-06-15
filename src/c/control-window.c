@@ -22,7 +22,7 @@ static void render(void) {
   else snprintf(val, sizeof(val), "%s\nBright %d%%", l->on ? "On" : "Off", l->bright);
   text_layer_set_text(s_title, l->name);
   text_layer_set_text(s_value, val);
-  text_layer_set_text(s_hint, s_temp_mode ? "↑↓ temp · long: bright" : "↑↓ bright · long: temp");
+  text_layer_set_text(s_hint, s_temp_mode ? "Up/Dn temp, hold=bright" : "Up/Dn bright, hold=temp");
 }
 
 static void up_click(ClickRecognizerRef r, void *ctx)   { send_command(s_index, s_temp_mode ? ACT_TEMP_UP : ACT_BRIGHT_UP); }
