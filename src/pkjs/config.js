@@ -6,7 +6,7 @@ module.exports = [
       { "type": "heading", "defaultValue": "One-time setup" },
       {
         "type": "text",
-        "defaultValue": "This app talks to Tuya's cloud, so it needs your own free Tuya developer keys (the official Tuya app can't be controlled directly).<br><br><b>1.</b> Go to <b>iot.tuya.com</b>, sign up, and create a <b>Cloud Project</b> (type: Smart Home). Pick the <b>Data Center</b> for your region (e.g. Central Europe).<br><b>2.</b> The project shows an <b>Access ID</b> and <b>Access Secret</b> — paste them below.<br><b>3.</b> In the project open <b>Devices &gt; Link App Account</b> and scan the QR with the Smart&nbsp;Life app (<b>Me &gt; Scan</b>). Your lights then appear under the project.<br><b>4.</b> Choose the <b>same Data Center</b> below as your account's region."
+        "defaultValue": "This app talks to Tuya's cloud, so it needs your own free Tuya developer keys (the official Tuya app can't be controlled directly).<br><br><b>1.</b> Go to <b>iot.tuya.com</b> and sign up. In the left menu pick <b>Cloud &gt; Development</b> and <b>Create Cloud Project</b> (type: Smart Home). This is a <i>Cloud Project</i>, not an <i>App</i>. Pick the <b>Data Center</b> for your region (e.g. Central Europe).<br><b>2.</b> The project shows an <b>Access ID</b> and <b>Access Secret</b> — paste them below.<br><b>3.</b> In the project open <b>Devices &gt; Link App Account</b> and scan the QR with the Smart&nbsp;Life app (<b>Me &gt; Scan</b>). Your lights then appear under the project.<br><b>4.</b> Choose the <b>same Data Center</b> below as your account's region."
       }
     ]
   },
