@@ -1,0 +1,30 @@
+{
+  "name": "pebble-tuya-control",
+  "author": "Sykerö Software",
+  "version": "1.0.0",
+  "private": true,
+  "keywords": ["pebble-app"],
+  "dependencies": {
+    "pebble-clay": "^1.0.4",
+    "js-sha256": "^0.11.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "scripts": {
+    "test": "jest"
+  },
+  "pebble": {
+    "displayName": "Tuya Lights",
+    "uuid": "f1d4c7a0-3b2e-4c9a-9e2f-7a6b5c4d3e21",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": ["basalt", "chalk", "diorite", "emery"],
+    "watchapp": { "watchface": false },
+    "messageKeys": [
+      "ListCount", "RowIndex", "RowName", "RowOn", "RowBright", "RowTemp",
+      "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready"
+    ],
+    "resources": { "media": [] }
+  }
+}
