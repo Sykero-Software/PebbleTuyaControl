@@ -59,7 +59,12 @@ function createClient(cfg, http, deps) {
     return getToken();
   }
 
-  function request(method, urlPath, body) {
+  // Tuya token-auth error codes: invalid/expired/illegal token. On these we drop
+  // the cached token and retry once, so a server-side expiry/revocation before the
+  // local expiry clock does not wedge every later request with a stale token.
+  var AUTH_ERROR_CODES = [1010, 1011, 1012, 1013];
+
+  function request(method, urlPath, body, _retried) {
     var bodyStr = body ? JSON.stringify(body) : '';
     return ensureToken().then(function (tok) {
       return http({
@@ -68,6 +73,10 @@ function createClient(cfg, http, deps) {
       });
     }).then(function (resp) {
       if (!resp || !resp.success) {
+        if (!_retried && resp && AUTH_ERROR_CODES.indexOf(resp.code) >= 0) {
+          token = null; tokenExpiresAt = 0;        // force a fresh token, then retry once
+          return request(method, urlPath, body, true);
+        }
         var e = new Error('Tuya API error ' + (resp && resp.code) + ': ' + (resp && resp.msg));
         e.code = resp && resp.code;
         throw e;

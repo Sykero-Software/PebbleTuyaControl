@@ -52,7 +52,9 @@ function parseStatus(status, caps) {
   var temp = -1;
   if (caps.tempCode) {
     var rt = statusValue(status, caps.tempCode);
-    temp = (rt !== undefined) ? rawToPercent(rt, caps.tempMin, caps.tempMax) : 0;
+    // Keep -1 ('unsupported') when the declared temp code is absent from status,
+    // so the watch does not show a bogus 0% control for an unreported value.
+    temp = (rt !== undefined) ? rawToPercent(rt, caps.tempMin, caps.tempMax) : -1;
   }
   return { on: on, bright: bright, temp: temp };
 }

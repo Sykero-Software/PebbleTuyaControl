@@ -26,6 +26,17 @@ function getCfg() {
   return { clientId: id, secret: secret, host: REGION_HOST[region] || REGION_HOST.eu };
 }
 
+// Reuse one Tuya client so its cached access-token is shared across the device load
+// AND every later command — rebuild only when the configured credentials change.
+var _client = null, _clientKey = null;
+function getClient() {
+  var cfg = getCfg();
+  if (!cfg) return null;
+  var key = cfg.clientId + '|' + cfg.host;
+  if (!_client || _clientKey !== key) { _client = client.createClient(cfg, http, deps); _clientKey = key; }
+  return _client;
+}
+
 // XMLHttpRequest-based HTTP that returns the parsed Tuya envelope.
 function http(opts) {
   return new Promise(function (resolve, reject) {
@@ -49,24 +60,38 @@ var deps = {
   }
 };
 
+// Pebble has a SINGLE outbox: a second sendAppMessage before the first is ACKed is
+// dropped (APP_MSG_BUSY). Serialize all outbound messages through an ack-gated queue
+// so multi-row list pushes arrive reliably.
+var _outQ = [];
+var _sending = false;
+function sendMsg(data) { _outQ.push(data); pump(); }
+function pump() {
+  if (_sending || !_outQ.length) return;
+  _sending = true;
+  var data = _outQ.shift();
+  Pebble.sendAppMessage(data,
+    function () { _sending = false; pump(); },
+    function () { _sending = false; pump(); });
+}
+
 function sendError(msg) {
-  Pebble.sendAppMessage({ ErrorMsg: msg });
+  sendMsg({ ErrorMsg: msg });
 }
 
 function pushRows() {
-  Pebble.sendAppMessage({ ListCount: slots.length, Ready: 1 });
+  sendMsg({ ListCount: slots.length, Ready: 1 });
   slots.forEach(function (s) {
     var st = stateById[s.id] || { on: 0, bright: 0, temp: -1 };
-    Pebble.sendAppMessage({
+    sendMsg({
       RowIndex: s.index, RowName: s.name, RowOn: st.on, RowBright: st.bright, RowTemp: st.temp
     });
   });
 }
 
 function loadAll() {
-  var cfg = getCfg();
-  if (!cfg) { Pebble.sendAppMessage({ Ready: 0 }); return; }
-  var c = client.createClient(cfg, http, deps);
+  var c = getClient();
+  if (!c) { sendMsg({ Ready: 0 }); return; }
 
   c.request('GET', '/v1.0/iot-01/associated-users/devices').then(function (resp) {
     var devices = (resp.result && resp.result.devices) || [];
@@ -95,16 +120,17 @@ function handleCommand(idx, action) {
   if (action === L.ACTIONS.REFRESH) { loadAll(); return; }
   var caps = capsById[slot.id];
   var state = stateById[slot.id];
+  if (!caps || !state) return;            // device not fully loaded yet — avoid undefined deref
   var cmds = L.actionToCommands(action, state, caps);
   if (!cmds.length) return;
-  var cfg = getCfg();
-  var c = client.createClient(cfg, http, deps);
+  var c = getClient();
+  if (!c) { sendMsg({ Ready: 0 }); return; }
   c.request('POST', '/v1.0/iot-03/devices/' + slot.id + '/commands', { commands: cmds })
     .then(function () {
       return c.request('GET', '/v1.0/iot-03/devices/' + slot.id + '/status').then(function (stat) {
         stateById[slot.id] = L.parseStatus(stat.result || [], caps);
         var st = stateById[slot.id];
-        Pebble.sendAppMessage({ RowIndex: idx, RowName: slot.name, RowOn: st.on, RowBright: st.bright, RowTemp: st.temp });
+        sendMsg({ RowIndex: idx, RowName: slot.name, RowOn: st.on, RowBright: st.bright, RowTemp: st.temp });
       });
     })
     .catch(function (e) { sendError(e.message || 'Command failed'); });

@@ -89,11 +89,38 @@ test('request() fetches a token first, then signs with access_token', async () =
   expect(http.calls[1].headers.sign).toMatch(/^[0-9A-F]{64}$/);
 });
 
-test('request() throws on API error envelope', async () => {
+test('request() throws on a non-auth API error envelope (no retry)', async () => {
   const http = fakeHttp([
     { success: true, result: { access_token: 'TOK', expire_time: 7200 } },
+    { success: false, code: 2007, msg: 'device offline' }
+  ]);
+  const c = createClient(cfg, http, deps);
+  await expect(c.request('GET', '/x')).rejects.toThrow(/2007/);
+  expect(http.calls.length).toBe(2); // token + one business call, no retry
+});
+
+test('request() clears the token and retries once on a 1010 auth error', async () => {
+  const http = fakeHttp([
+    { success: true, result: { access_token: 'TOK1', expire_time: 7200 } }, // initial token
+    { success: false, code: 1010, msg: 'token invalid' },                   // business call fails auth
+    { success: true, result: { access_token: 'TOK2', expire_time: 7200 } }, // fresh token
+    { success: true, result: { ok: 1 } }                                    // retried business call OK
+  ]);
+  const c = createClient(cfg, http, deps);
+  const res = await c.request('GET', '/x');
+  expect(res.result.ok).toBe(1);
+  expect(http.calls.length).toBe(4);                 // token, fail, re-token, retry
+  expect(http.calls[3].headers.access_token).toBe('TOK2'); // retry used the fresh token
+});
+
+test('request() does not retry more than once on persistent 1010', async () => {
+  const http = fakeHttp([
+    { success: true, result: { access_token: 'TOK1', expire_time: 7200 } },
+    { success: false, code: 1010, msg: 'token invalid' },
+    { success: true, result: { access_token: 'TOK2', expire_time: 7200 } },
     { success: false, code: 1010, msg: 'token invalid' }
   ]);
   const c = createClient(cfg, http, deps);
   await expect(c.request('GET', '/x')).rejects.toThrow(/1010/);
+  expect(http.calls.length).toBe(4); // no infinite retry loop
 });

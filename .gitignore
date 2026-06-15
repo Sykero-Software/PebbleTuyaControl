@@ -1,3 +1,4 @@
 build/
 node_modules/
 shot-*.png
+.lock-waf_*

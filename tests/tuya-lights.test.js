@@ -55,6 +55,11 @@ describe('parseStatus', () => {
     const caps = { switchCode: 'switch_led', brightCode: 'bright_value', brightMin: 25, brightMax: 255, tempCode: null };
     expect(L.parseStatus([{ code: 'switch_led', value: false }], caps)).toEqual({ on: 0, bright: 0, temp: -1 });
   });
+  test('temp -1 when code declared but value missing from status', () => {
+    const caps = { switchCode: 'switch_led', brightCode: 'bright_value_v2', brightMin: 10, brightMax: 1000,
+                   tempCode: 'temp_value_v2', tempMin: 0, tempMax: 1000 };
+    expect(L.parseStatus([{ code: 'switch_led', value: true }], caps)).toEqual({ on: 1, bright: 0, temp: -1 });
+  });
 });
 
 describe('actionToCommands', () => {

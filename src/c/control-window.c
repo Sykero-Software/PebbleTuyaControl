@@ -1,21 +1,14 @@
 #include <pebble.h>
+#include "tuya.h"
 
-#define NAME_LEN 32
-enum { ACT_REFRESH = 0, ACT_TOGGLE = 1, ACT_BRIGHT_UP = 2, ACT_BRIGHT_DOWN = 3, ACT_TEMP_UP = 4, ACT_TEMP_DOWN = 5 };
-
-typedef struct { char name[NAME_LEN]; int on; int bright; int temp; } Light;
-
-// Provided by pebble-tuya.c
-extern Light s_lights[];
-extern int s_light_count;
-void send_command(int index, int action);
-
-static Window *s_ctrl_window;
+static Window *s_ctrl_window;   // created once, reused across pushes (no per-push leak)
 static TextLayer *s_title, *s_value, *s_hint;
 static int s_index;
 static int s_temp_mode = 0; // 0 = brightness, 1 = colour temp
+static bool s_loaded = false;
 
 static void render(void) {
+  if (!s_loaded || s_index < 0 || s_index >= s_light_count) return;
   Light *l = &s_lights[s_index];
   static char val[48];
   if (s_temp_mode) snprintf(val, sizeof(val), "%s\nTemp %d%%", l->on ? "On" : "Off", l->temp < 0 ? 0 : l->temp);
@@ -25,11 +18,11 @@ static void render(void) {
   text_layer_set_text(s_hint, s_temp_mode ? "Up/Dn temp, hold=bright" : "Up/Dn bright, hold=temp");
 }
 
-static void up_click(ClickRecognizerRef r, void *ctx)   { send_command(s_index, s_temp_mode ? ACT_TEMP_UP : ACT_BRIGHT_UP); }
-static void down_click(ClickRecognizerRef r, void *ctx) { send_command(s_index, s_temp_mode ? ACT_TEMP_DOWN : ACT_BRIGHT_DOWN); }
-static void select_click(ClickRecognizerRef r, void *ctx) { send_command(s_index, ACT_TOGGLE); }
+static void up_click(ClickRecognizerRef r, void *ctx)   { if (s_index < s_light_count) send_command(s_index, s_temp_mode ? ACT_TEMP_UP : ACT_BRIGHT_UP); }
+static void down_click(ClickRecognizerRef r, void *ctx) { if (s_index < s_light_count) send_command(s_index, s_temp_mode ? ACT_TEMP_DOWN : ACT_BRIGHT_DOWN); }
+static void select_click(ClickRecognizerRef r, void *ctx) { if (s_index < s_light_count) send_command(s_index, ACT_TOGGLE); }
 static void select_long(ClickRecognizerRef r, void *ctx) {
-  if (s_lights[s_index].temp >= 0) { s_temp_mode = !s_temp_mode; render(); }
+  if (s_index < s_light_count && s_lights[s_index].temp >= 0) { s_temp_mode = !s_temp_mode; render(); }
 }
 
 static void click_config(void *ctx) {
@@ -54,11 +47,13 @@ static void ctrl_load(Window *w) {
   layer_add_child(root, text_layer_get_layer(s_title));
   layer_add_child(root, text_layer_get_layer(s_value));
   layer_add_child(root, text_layer_get_layer(s_hint));
+  s_loaded = true;
   render();
 }
 
 static void ctrl_unload(Window *w) {
   text_layer_destroy(s_title); text_layer_destroy(s_value); text_layer_destroy(s_hint);
+  s_loaded = false;
 }
 
 // Called by the list window's inbox handler after a row update, to refresh if showing.
@@ -69,8 +64,14 @@ void control_window_refresh(int index) {
 void control_window_push(int index) {
   s_index = index;
   s_temp_mode = 0;
-  s_ctrl_window = window_create();
-  window_set_window_handlers(s_ctrl_window, (WindowHandlers){ .load = ctrl_load, .unload = ctrl_unload });
-  window_set_click_config_provider(s_ctrl_window, click_config);
-  window_stack_push(s_ctrl_window, true);
+  if (!s_ctrl_window) {
+    s_ctrl_window = window_create();
+    window_set_window_handlers(s_ctrl_window, (WindowHandlers){ .load = ctrl_load, .unload = ctrl_unload });
+    window_set_click_config_provider(s_ctrl_window, click_config);
+  }
+  window_stack_push(s_ctrl_window, true);  // load fires -> render() with the new s_index
+}
+
+void control_window_deinit(void) {
+  if (s_ctrl_window) { window_destroy(s_ctrl_window); s_ctrl_window = NULL; }
 }

@@ -1,19 +1,7 @@
 #include <pebble.h>
+#include "tuya.h"
 
-#define MAX_LIGHTS 12
-#define NAME_LEN 32
-
-// CmdAction enum — must match L.ACTIONS in tuya-lights.js.
-enum { ACT_REFRESH = 0, ACT_TOGGLE = 1, ACT_BRIGHT_UP = 2, ACT_BRIGHT_DOWN = 3, ACT_TEMP_UP = 4, ACT_TEMP_DOWN = 5 };
-
-typedef struct {
-  char name[NAME_LEN];
-  int on;       // 0/1
-  int bright;   // 0-100
-  int temp;     // 0-100, -1 = unsupported
-} Light;
-
-Light s_lights[MAX_LIGHTS];   // static storage avoids 2KB-stack overflow (CLAUDE.md)
+Light s_lights[MAX_LIGHTS];   // file-scope: shared with control-window.c via tuya.h
 int s_light_count = 0;
 static int s_ready = 0;       // 0 = not configured / loading
 static char s_error[64] = "";
@@ -21,10 +9,6 @@ static char s_error[64] = "";
 static Window *s_list_window;
 static MenuLayer *s_menu;
 static StatusBarLayer *s_status;
-
-// Provided by control-window.c
-void control_window_push(int index);
-void control_window_refresh(int index);
 
 // --- AppMessage send ---
 void send_command(int index, int action) {
@@ -84,6 +68,7 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   Tuple *t;
   if ((t = dict_find(it, MESSAGE_KEY_ErrorMsg))) {
     strncpy(s_error, t->value->cstring, sizeof(s_error) - 1);
+    s_error[sizeof(s_error) - 1] = '\0';
     s_ready = 1; list_window_reload(); return;
   }
   if ((t = dict_find(it, MESSAGE_KEY_Ready))) {
@@ -99,7 +84,7 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     int i = idx_t->value->int32;
     if (i >= 0 && i < MAX_LIGHTS) {
       Tuple *n = dict_find(it, MESSAGE_KEY_RowName);
-      if (n) strncpy(s_lights[i].name, n->value->cstring, NAME_LEN - 1);
+      if (n) { strncpy(s_lights[i].name, n->value->cstring, NAME_LEN - 1); s_lights[i].name[NAME_LEN - 1] = '\0'; }
       Tuple *on = dict_find(it, MESSAGE_KEY_RowOn);    if (on) s_lights[i].on = on->value->int32;
       Tuple *br = dict_find(it, MESSAGE_KEY_RowBright); if (br) s_lights[i].bright = br->value->int32;
       Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);  if (tp) s_lights[i].temp = tp->value->int32;
@@ -110,8 +95,17 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   if (idx_t) control_window_refresh(idx_t->value->int32);
 }
 
+static void outbox_failed(DictionaryIterator *it, AppMessageResult reason, void *ctx) {
+  // Required on real hardware: the phone ACKs outbound messages and the SDK
+  // dispatches the result callback. A missing handler hard-faults (CLAUDE.md).
+}
+
+static void outbox_sent(DictionaryIterator *it, void *ctx) {}
+
 static void init(void) {
   app_message_register_inbox_received(inbox_received);
+  app_message_register_outbox_sent(outbox_sent);
+  app_message_register_outbox_failed(outbox_failed);
   app_message_open(512, 256);
 
   s_list_window = window_create();
@@ -120,6 +114,7 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  control_window_deinit();
   window_destroy(s_list_window);
 }
 
