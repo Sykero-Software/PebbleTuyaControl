@@ -9,10 +9,12 @@ def options(ctx):
 
 
 def configure(ctx):
+    patch_clay_for_new_platforms(ctx)
     ctx.load('pebble_sdk')
 
 
 def build(ctx):
+    patch_clay_for_new_platforms(ctx)
     ctx.load('pebble_sdk')
 
     binaries = []
@@ -31,3 +33,66 @@ def build(ctx):
                                          'src/pkjs/**/*.json',
                                          'src/common/**/*.js']),
                    js_entry_file='src/pkjs/index.js')
+
+
+def patch_clay_for_new_platforms(ctx):
+    """Teach pebble-clay 1.0.4 about the newer `flint`/`gabbro` boards.
+
+    Clay ships its compiled C library (`libpebble-clay.a`) only for
+    aplite/basalt/chalk/diorite/emery. Because Clay is consumed as a Pebble
+    *package*, waf links that C lib into every target platform, so a build that
+    targets flint/gabbro fails ("doesn't support the platform") even though we
+    use Clay purely for its JS config page and never call a single Clay C
+    function. We make the lib link on the new boards by adding flint/gabbro
+    copies of an existing board's `.a` (diorite->flint, chalk->gabbro) and the
+    matching include stubs. The bytes are never executed (no Clay C calls), so
+    using another board's lib only needs to satisfy the linker.
+
+    This patches the installed package in node_modules so it survives a
+    `pebble package install` / npm reinstall (which restores the upstream files).
+    It is idempotent and a no-op once the entries exist. dist.zip is the source
+    of truth: the build re-extracts it each time, so patching the extracted
+    dist/ tree would not stick — we patch the zip.
+    """
+    import json, zipfile, os
+    clay = ctx.path.find_node('node_modules/pebble-clay')
+    if clay is None:
+        return
+    clay_dir = clay.abspath()
+    new_platforms = {'flint': 'diorite', 'gabbro': 'chalk'}
+
+    # 1) package.json targetPlatforms (the dependency-resolution gate).
+    pj_path = os.path.join(clay_dir, 'package.json')
+    pj = json.load(open(pj_path))
+    tps = pj.get('pebble', {}).get('targetPlatforms', [])
+    if tps and any(p not in tps for p in new_platforms):
+        for p in new_platforms:
+            if p not in tps:
+                tps.append(p)
+        json.dump(pj, open(pj_path, 'w'), indent=2)
+
+    # 2) dist.zip binaries + include stubs (what the linker/compiler consume).
+    zip_path = os.path.join(clay_dir, 'dist.zip')
+    if not os.path.exists(zip_path):
+        return
+    zin = zipfile.ZipFile(zip_path, 'r')
+    data = {n: zin.read(n) for n in zin.namelist()}
+    zin.close()
+    changed = False
+    for new, src in new_platforms.items():
+        bin_dst = 'binaries/%s/libpebble-clay.a' % new
+        bin_src = 'binaries/%s/libpebble-clay.a' % src
+        inc_dst = 'include/pebble-clay/%s/src/resource_ids.auto.h' % new
+        inc_src = 'include/pebble-clay/%s/src/resource_ids.auto.h' % src
+        if bin_dst not in data and bin_src in data:
+            data[bin_dst] = data[bin_src]
+            changed = True
+        if inc_dst not in data and inc_src in data:
+            data[inc_dst] = data[inc_src]
+            changed = True
+    if changed:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for n, b in data.items():
+                zout.writestr(n, b)
+        from waflib import Logs
+        Logs.pprint('CYAN', 'Patched pebble-clay for flint/gabbro')
