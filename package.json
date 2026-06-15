@@ -23,7 +23,7 @@
     "watchapp": { "watchface": false },
     "messageKeys": [
       "ListCount", "RowIndex", "RowName", "RowOn", "RowBright", "RowTemp",
-      "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready"
+      "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready", "RowOnline"
     ],
     "resources": { "media": [] }
   }

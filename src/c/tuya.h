@@ -15,6 +15,7 @@ typedef struct {
   int on;       // 0/1
   int bright;   // 0-100
   int temp;     // 0-100, -1 = unsupported
+  int online;   // 0/1 reachability
 } Light;
 
 // Shared light state — defined in pebble-tuya.c.

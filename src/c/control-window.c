@@ -1,26 +1,51 @@
 #include <pebble.h>
 #include "tuya.h"
 
+#define STEP 20  // percent per press — mirror L.actionToCommands in tuya-lights.js
+
 static Window *s_ctrl_window;   // created once, reused across pushes (no per-push leak)
 static TextLayer *s_title, *s_value, *s_hint;
 static int s_index;
 static int s_temp_mode = 0; // 0 = brightness, 1 = colour temp
 static bool s_loaded = false;
 
+static int clamp_pct(int v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
+
 static void render(void) {
   if (!s_loaded || s_index < 0 || s_index >= s_light_count) return;
   Light *l = &s_lights[s_index];
+  const char *statusw = !l->online ? "Offline" : (l->on ? "On" : "Off");
   static char val[48];
-  if (s_temp_mode) snprintf(val, sizeof(val), "%s\nTemp %d%%", l->on ? "On" : "Off", l->temp < 0 ? 0 : l->temp);
-  else snprintf(val, sizeof(val), "%s\nBright %d%%", l->on ? "On" : "Off", l->bright);
+  if (s_temp_mode) snprintf(val, sizeof(val), "%s\nTemp %d%%", statusw, l->temp < 0 ? 0 : l->temp);
+  else snprintf(val, sizeof(val), "%s\nBright %d%%", statusw, l->bright);
   text_layer_set_text(s_title, l->name);
   text_layer_set_text(s_value, val);
   text_layer_set_text(s_hint, s_temp_mode ? "Up/Dn temp, hold=bright" : "Up/Dn bright, hold=temp");
 }
 
-static void up_click(ClickRecognizerRef r, void *ctx)   { if (s_index < s_light_count) send_command(s_index, s_temp_mode ? ACT_TEMP_UP : ACT_BRIGHT_UP); }
-static void down_click(ClickRecognizerRef r, void *ctx) { if (s_index < s_light_count) send_command(s_index, s_temp_mode ? ACT_TEMP_DOWN : ACT_BRIGHT_DOWN); }
-static void select_click(ClickRecognizerRef r, void *ctx) { if (s_index < s_light_count) send_command(s_index, ACT_TOGGLE); }
+// Optimistic UI: update the local state immediately and re-render, then fire the
+// command. PKJS pushes the authoritative state back on completion (and reverts to
+// the last known state if the command fails), so the watch self-corrects.
+static void up_click(ClickRecognizerRef r, void *ctx) {
+  if (s_index >= s_light_count) return;
+  Light *l = &s_lights[s_index];
+  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp + STEP); send_command(s_index, ACT_TEMP_UP); }
+  else { l->bright = clamp_pct(l->bright + STEP); send_command(s_index, ACT_BRIGHT_UP); }
+  render();
+}
+static void down_click(ClickRecognizerRef r, void *ctx) {
+  if (s_index >= s_light_count) return;
+  Light *l = &s_lights[s_index];
+  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp - STEP); send_command(s_index, ACT_TEMP_DOWN); }
+  else { l->bright = clamp_pct(l->bright - STEP); send_command(s_index, ACT_BRIGHT_DOWN); }
+  render();
+}
+static void select_click(ClickRecognizerRef r, void *ctx) {
+  if (s_index >= s_light_count) return;
+  s_lights[s_index].on = !s_lights[s_index].on;
+  send_command(s_index, ACT_TOGGLE);
+  render();
+}
 static void select_long(ClickRecognizerRef r, void *ctx) {
   if (s_index < s_light_count && s_lights[s_index].temp >= 0) { s_temp_mode = !s_temp_mode; render(); }
 }

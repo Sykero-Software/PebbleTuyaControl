@@ -32,7 +32,8 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
   if (s_light_count == 0) { menu_cell_basic_draw(g, cell, "No lights found", NULL, NULL); return; }
   Light *l = &s_lights[ci->row];
   static char sub[24];
-  if (l->on) snprintf(sub, sizeof(sub), "On · %d%%", l->bright);
+  if (!l->online) snprintf(sub, sizeof(sub), "Offline");
+  else if (l->on) snprintf(sub, sizeof(sub), "On · %d%%", l->bright);
   else snprintf(sub, sizeof(sub), "Off");
   menu_cell_basic_draw(g, cell, l->name, sub, NULL);
 }
@@ -85,9 +86,10 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     if (i >= 0 && i < MAX_LIGHTS) {
       Tuple *n = dict_find(it, MESSAGE_KEY_RowName);
       if (n) { strncpy(s_lights[i].name, n->value->cstring, NAME_LEN - 1); s_lights[i].name[NAME_LEN - 1] = '\0'; }
-      Tuple *on = dict_find(it, MESSAGE_KEY_RowOn);    if (on) s_lights[i].on = on->value->int32;
+      Tuple *on = dict_find(it, MESSAGE_KEY_RowOn);     if (on) s_lights[i].on = on->value->int32;
       Tuple *br = dict_find(it, MESSAGE_KEY_RowBright); if (br) s_lights[i].bright = br->value->int32;
-      Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);  if (tp) s_lights[i].temp = tp->value->int32;
+      Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);   if (tp) s_lights[i].temp = tp->value->int32;
+      Tuple *ol = dict_find(it, MESSAGE_KEY_RowOnline); if (ol) s_lights[i].online = ol->value->int32;
       if (i + 1 > s_light_count) s_light_count = i + 1;
     }
   }

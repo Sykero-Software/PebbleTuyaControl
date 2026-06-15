@@ -79,13 +79,17 @@ function sendError(msg) {
   sendMsg({ ErrorMsg: msg });
 }
 
+function rowMsg(slot, st) {
+  return {
+    RowIndex: slot.index, RowName: slot.name,
+    RowOn: st.on, RowBright: st.bright, RowTemp: st.temp, RowOnline: slot.online
+  };
+}
+
 function pushRows() {
   sendMsg({ ListCount: slots.length, Ready: 1 });
   slots.forEach(function (s) {
-    var st = stateById[s.id] || { on: 0, bright: 0, temp: -1 };
-    sendMsg({
-      RowIndex: s.index, RowName: s.name, RowOn: st.on, RowBright: st.bright, RowTemp: st.temp
-    });
+    sendMsg(rowMsg(s, stateById[s.id] || { on: 0, bright: 0, temp: -1 }));
   });
 }
 
@@ -129,11 +133,14 @@ function handleCommand(idx, action) {
     .then(function () {
       return c.request('GET', '/v1.0/iot-03/devices/' + slot.id + '/status').then(function (stat) {
         stateById[slot.id] = L.parseStatus(stat.result || [], caps);
-        var st = stateById[slot.id];
-        sendMsg({ RowIndex: idx, RowName: slot.name, RowOn: st.on, RowBright: st.bright, RowTemp: st.temp });
+        sendMsg(rowMsg(slot, stateById[slot.id]));   // authoritative state corrects the watch's optimistic guess
       });
     })
-    .catch(function (e) { sendError(e.message || 'Command failed'); });
+    .catch(function (e) {
+      // Command failed — revert the watch's optimistic update to the last known true state.
+      if (stateById[slot.id]) sendMsg(rowMsg(slot, stateById[slot.id]));
+      sendError(e.message || 'Command failed');
+    });
 }
 
 Pebble.addEventListener('ready', function () { loadAll(); });
