@@ -29,5 +29,22 @@ module.exports = [
       { "type": "text", "defaultValue": "Tip: the Data Center must match the region where your Smart Life account is registered, or no lights will appear." }
     ]
   },
+  {
+    "type": "section",
+    "items": [
+      { "type": "heading", "defaultValue": "Refresh" },
+      {
+        "type": "select", "messageKey": "TuyaPollInterval", "label": "Auto-refresh while open",
+        "defaultValue": "0",
+        "options": [
+          { "label": "Off (refresh on open only)", "value": "0" },
+          { "label": "Every 15 s", "value": "15" },
+          { "label": "Every 30 s", "value": "30" },
+          { "label": "Every 60 s", "value": "60" }
+        ]
+      },
+      { "type": "text", "defaultValue": "State is always fetched when you open the app. Auto-refresh also re-polls while the app stays open (uses more data/battery)." }
+    ]
+  },
   { "type": "submit", "defaultValue": "Save" }
 ];

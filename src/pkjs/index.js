@@ -18,12 +18,20 @@ var slots = [];            // [{index, id, name}]
 var capsById = {};         // id -> caps
 var stateById = {};        // id -> {on,bright,temp}
 
+function readSettings() {
+  try { return JSON.parse(localStorage.getItem('clay-settings')) || {}; } catch (e) { return {}; }
+}
+
 function getCfg() {
-  var s = {};
-  try { s = JSON.parse(localStorage.getItem('clay-settings')) || {}; } catch (e) { s = {}; }
+  var s = readSettings();
   var id = s.TuyaAccessId, secret = s.TuyaAccessSecret, region = s.TuyaRegion || 'eu';
   if (!id || !secret) return null;
   return { clientId: id, secret: secret, host: REGION_HOST[region] || REGION_HOST.eu };
+}
+
+function getPollMs() {
+  var n = parseInt(readSettings().TuyaPollInterval, 10);
+  return (n > 0) ? n * 1000 : 0;
 }
 
 // Reuse one Tuya client so its cached access-token is shared across the device load
@@ -103,10 +111,16 @@ function loadAll() {
     var chain = Promise.resolve();
     devices.forEach(function (d) {
       chain = chain.then(function () {
-        return c.request('GET', '/v1.0/iot-03/devices/' + d.id + '/specification').then(function (spec) {
-          capsById[d.id] = L.detectCaps(spec.result);
+        // Specification gives capability codes + ranges and never changes — fetch
+        // it once and cache, so polling re-fetches only the (changing) status.
+        var capsP = capsById[d.id]
+          ? Promise.resolve(capsById[d.id])
+          : c.request('GET', '/v1.0/iot-03/devices/' + d.id + '/specification').then(function (spec) {
+              capsById[d.id] = L.detectCaps(spec.result); return capsById[d.id];
+            });
+        return capsP.then(function (caps) {
           return c.request('GET', '/v1.0/iot-03/devices/' + d.id + '/status').then(function (stat) {
-            stateById[d.id] = L.parseStatus(stat.result || [], capsById[d.id]);
+            stateById[d.id] = L.parseStatus(stat.result || [], caps);
           });
         });
       });
@@ -143,7 +157,15 @@ function handleCommand(idx, action) {
     });
 }
 
-Pebble.addEventListener('ready', function () { loadAll(); });
+// Auto-refresh timer (only while the app is open — PKJS runs foreground-only).
+var _pollTimer = null;
+function startPolling() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  var ms = getPollMs();
+  if (ms > 0) _pollTimer = setInterval(loadAll, ms);
+}
+
+Pebble.addEventListener('ready', function () { loadAll(); startPolling(); });
 
 Pebble.addEventListener('showConfiguration', function () {
   Pebble.openURL(clay.generateUrl());
@@ -153,6 +175,7 @@ Pebble.addEventListener('webviewclosed', function (e) {
   if (!e || !e.response) { return; }
   clay.getSettings(e.response); // persists flattened values to localStorage 'clay-settings'
   loadAll();                     // refresh with the new credentials
+  startPolling();                // apply any change to the auto-refresh interval
 });
 
 Pebble.addEventListener('appmessage', function (e) {

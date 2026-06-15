@@ -3,7 +3,13 @@
 
 Light s_lights[MAX_LIGHTS];   // file-scope: shared with control-window.c via tuya.h
 int s_light_count = 0;
-static int s_ready = 0;       // 0 = not configured / loading
+
+// Tri-state so the watch can tell "still loading" apart from "not configured":
+//  LOADING   — initial, before PKJS has answered (configured apps spend a moment here)
+//  READY     — PKJS sent Ready:1 (+ rows)
+//  NOCONFIG  — PKJS sent Ready:0 (no credentials entered yet)
+enum { ST_LOADING = 0, ST_READY = 1, ST_NOCONFIG = 2 };
+static int s_state = ST_LOADING;
 static char s_error[64] = "";
 
 static Window *s_list_window;
@@ -22,13 +28,14 @@ void send_command(int index, int action) {
 // --- MenuLayer callbacks ---
 static uint16_t menu_num_rows(MenuLayer *m, uint16_t section, void *ctx) {
   if (s_error[0]) return 1;
-  if (!s_ready) return 1;
+  if (s_state != ST_READY) return 1;
   return s_light_count == 0 ? 1 : s_light_count;
 }
 
 static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *ctx) {
   if (s_error[0]) { menu_cell_basic_draw(g, cell, "Error", s_error, NULL); return; }
-  if (!s_ready) { menu_cell_basic_draw(g, cell, "Tuya Lights", "Configure on phone…", NULL); return; }
+  if (s_state == ST_LOADING) { menu_cell_basic_draw(g, cell, "Tuya Lights", "Loading…", NULL); return; }
+  if (s_state == ST_NOCONFIG) { menu_cell_basic_draw(g, cell, "Tuya Lights", "Configure on phone…", NULL); return; }
   if (s_light_count == 0) { menu_cell_basic_draw(g, cell, "No lights found", NULL, NULL); return; }
   Light *l = &s_lights[ci->row];
   static char sub[24];
@@ -39,7 +46,7 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
 }
 
 static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
-  if (!s_ready || s_light_count == 0 || s_error[0]) return;
+  if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   control_window_push(ci->row);
 }
 
@@ -70,10 +77,10 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   if ((t = dict_find(it, MESSAGE_KEY_ErrorMsg))) {
     strncpy(s_error, t->value->cstring, sizeof(s_error) - 1);
     s_error[sizeof(s_error) - 1] = '\0';
-    s_ready = 1; list_window_reload(); return;
+    list_window_reload(); return;
   }
   if ((t = dict_find(it, MESSAGE_KEY_Ready))) {
-    s_ready = t->value->int32;
+    s_state = t->value->int32 ? ST_READY : ST_NOCONFIG;
     s_error[0] = '\0';
   }
   if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
