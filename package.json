@@ -25,6 +25,10 @@
       "ListCount", "RowIndex", "RowName", "RowOn", "RowBright", "RowTemp",
       "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready", "RowOnline"
     ],
-    "resources": { "media": [] }
+    "resources": {
+      "media": [
+        { "type": "bitmap", "menuIcon": true, "name": "MENU_ICON", "file": "images/menuicon.png" }
+      ]
+    }
   }
 }
