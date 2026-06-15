@@ -77,6 +77,22 @@ function actionToCommands(action, state, caps) {
   return [];
 }
 
+function clampPct(v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
+
+// Compute the new normalised state implied by a successful command, WITHOUT
+// re-reading /status — the Tuya cloud lags the device's report, so an immediate
+// re-fetch returns the pre-command value and would clobber the change. The real
+// status is re-read on app open / REFRESH instead.
+function applyActionToState(action, state, caps) {
+  var ns = { on: state.on, bright: state.bright, temp: state.temp };
+  if (action === ACTIONS.TOGGLE) ns.on = state.on ? 0 : 1;
+  else if (action === ACTIONS.BRIGHT_UP) ns.bright = clampPct(state.bright + STEP);
+  else if (action === ACTIONS.BRIGHT_DOWN) ns.bright = clampPct(state.bright - STEP);
+  else if (action === ACTIONS.TEMP_UP && caps.tempCode) ns.temp = clampPct(state.temp + STEP);
+  else if (action === ACTIONS.TEMP_DOWN && caps.tempCode) ns.temp = clampPct(state.temp - STEP);
+  return ns;
+}
+
 function mapDevicesToSlots(devices, capsById) {
   var online = [], offline = [];
   for (var i = 0; i < devices.length; i++) {
@@ -94,5 +110,6 @@ function mapDevicesToSlots(devices, capsById) {
 
 module.exports = {
   ACTIONS: ACTIONS, detectCaps: detectCaps, rawToPercent: rawToPercent, percentToRaw: percentToRaw,
-  parseStatus: parseStatus, actionToCommands: actionToCommands, mapDevicesToSlots: mapDevicesToSlots
+  parseStatus: parseStatus, actionToCommands: actionToCommands,
+  applyActionToState: applyActionToState, mapDevicesToSlots: mapDevicesToSlots
 };

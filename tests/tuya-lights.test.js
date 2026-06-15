@@ -84,6 +84,33 @@ describe('actionToCommands', () => {
   });
 });
 
+describe('applyActionToState', () => {
+  const caps = { switchCode: 'switch_led', brightCode: 'bright_value_v2', brightMin: 10, brightMax: 1000,
+                 tempCode: 'temp_value_v2', tempMin: 0, tempMax: 1000 };
+  const ACT = L.ACTIONS;
+  test('TOGGLE flips on (off -> on)', () => {
+    expect(L.applyActionToState(ACT.TOGGLE, { on: 0, bright: 50, temp: 50 }, caps))
+      .toEqual({ on: 1, bright: 50, temp: 50 });
+  });
+  test('TOGGLE flips on (on -> off)', () => {
+    expect(L.applyActionToState(ACT.TOGGLE, { on: 1, bright: 50, temp: 50 }, caps))
+      .toEqual({ on: 0, bright: 50, temp: 50 });
+  });
+  test('BRIGHT_UP raises by step and clamps at 100', () => {
+    expect(L.applyActionToState(ACT.BRIGHT_UP, { on: 1, bright: 90, temp: 50 }, caps))
+      .toEqual({ on: 1, bright: 100, temp: 50 });
+  });
+  test('TEMP_DOWN lowers by step and clamps at 0', () => {
+    expect(L.applyActionToState(ACT.TEMP_DOWN, { on: 1, bright: 50, temp: 10 }, caps))
+      .toEqual({ on: 1, bright: 50, temp: 0 });
+  });
+  test('TEMP_UP is a no-op when temp unsupported', () => {
+    const noTemp = Object.assign({}, caps, { tempCode: null });
+    expect(L.applyActionToState(ACT.TEMP_UP, { on: 1, bright: 50, temp: -1 }, noTemp))
+      .toEqual({ on: 1, bright: 50, temp: -1 });
+  });
+});
+
 describe('mapDevicesToSlots', () => {
   test('keeps only switchable lights, carries online flag', () => {
     const devs = [

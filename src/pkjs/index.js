@@ -131,10 +131,10 @@ function handleCommand(idx, action) {
   if (!c) { sendMsg({ Ready: 0 }); return; }
   c.request('POST', '/v1.0/iot-03/devices/' + slot.id + '/commands', { commands: cmds })
     .then(function () {
-      return c.request('GET', '/v1.0/iot-03/devices/' + slot.id + '/status').then(function (stat) {
-        stateById[slot.id] = L.parseStatus(stat.result || [], caps);
-        sendMsg(rowMsg(slot, stateById[slot.id]));   // authoritative state corrects the watch's optimistic guess
-      });
+      // Trust the ACKed command — do NOT re-read /status (the cloud lags the device
+      // and would return the stale pre-command value, flipping the UI back).
+      stateById[slot.id] = L.applyActionToState(action, state, caps);
+      sendMsg(rowMsg(slot, stateById[slot.id]));
     })
     .catch(function (e) {
       // Command failed — revert the watch's optimistic update to the last known true state.
