@@ -46,3 +46,54 @@ describe('sign', () => {
     expect(sign(str, 'k1')).not.toBe(sign(str, 'k2'));
   });
 });
+
+const { createClient } = require('../src/pkjs/tuya-client');
+
+function fakeHttp(responses) {
+  const calls = [];
+  function http(opts) {
+    calls.push(opts);
+    return Promise.resolve(responses.shift());
+  }
+  http.calls = calls;
+  return http;
+}
+
+const cfg = { clientId: 'CID', secret: 'SEC', host: 'https://openapi.tuyaeu.com' };
+const deps = { now: () => 1588925778000, nonce: () => 'NONCE' };
+
+test('getToken signs a token request (no access_token header)', async () => {
+  const http = fakeHttp([{ success: true, result: { access_token: 'TOK', expire_time: 7200 } }]);
+  const c = createClient(cfg, http, deps);
+  const tok = await c.getToken();
+  expect(tok).toBe('TOK');
+  const call = http.calls[0];
+  expect(call.method).toBe('GET');
+  expect(call.url).toBe('https://openapi.tuyaeu.com/v1.0/token?grant_type=1');
+  expect(call.headers.client_id).toBe('CID');
+  expect(call.headers.sign_method).toBe('HMAC-SHA256');
+  expect(call.headers.t).toBe('1588925778000');
+  expect(call.headers.sign).toMatch(/^[0-9A-F]{64}$/);
+  expect(call.headers.access_token).toBeUndefined();
+});
+
+test('request() fetches a token first, then signs with access_token', async () => {
+  const http = fakeHttp([
+    { success: true, result: { access_token: 'TOK', expire_time: 7200 } },
+    { success: true, result: { devices: [] } }
+  ]);
+  const c = createClient(cfg, http, deps);
+  const res = await c.request('GET', '/v1.0/iot-01/associated-users/devices');
+  expect(res.result.devices).toEqual([]);
+  expect(http.calls[1].headers.access_token).toBe('TOK');
+  expect(http.calls[1].headers.sign).toMatch(/^[0-9A-F]{64}$/);
+});
+
+test('request() throws on API error envelope', async () => {
+  const http = fakeHttp([
+    { success: true, result: { access_token: 'TOK', expire_time: 7200 } },
+    { success: false, code: 1010, msg: 'token invalid' }
+  ]);
+  const c = createClient(cfg, http, deps);
+  await expect(c.request('GET', '/x')).rejects.toThrow(/1010/);
+});
