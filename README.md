@@ -55,3 +55,7 @@ same Smart Life account your lights are paired to.
 - Unit tests: `npm test` (Jest — signing, token, lights logic).
 
 RGB colour and scenes are out of scope for the initial version.
+
+## Support
+
+Questions, feedback or bug reports: <pebble.tuyalights@sykero.fi>
