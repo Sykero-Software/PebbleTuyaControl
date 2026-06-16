@@ -18,6 +18,9 @@ static char s_error[64] = "";
 #define PERSIST_KEY_QUICK_TOGGLE 101
 #define PERSIST_KEY_AUTO_CLOSE   102
 #define PERSIST_KEY_LIGHT_BASE   200   // + i
+#define PERSIST_KEY_MRU_ENABLED  103
+#define PERSIST_KEY_MRU_COUNT    104
+#define PERSIST_KEY_MRU_BASE     300   // + i, one name string per entry
 
 bool s_cfg_quick_toggle = true;    // default ON  (matches Clay defaultValue)
 bool s_cfg_auto_close   = false;   // default OFF (matches Clay defaultValue)
@@ -179,6 +182,8 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   if (qt) { s_cfg_quick_toggle = qt->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_QUICK_TOGGLE, s_cfg_quick_toggle); }
   Tuple *ac = dict_find(it, MESSAGE_KEY_CfgAutoClose);
   if (ac) { s_cfg_auto_close = ac->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_AUTO_CLOSE, s_cfg_auto_close); }
+  Tuple *mru = dict_find(it, MESSAGE_KEY_CfgMru);
+  if (mru) { s_cfg_mru = mru->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_MRU_ENABLED, s_cfg_mru); }
   if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
     s_light_count = t->value->int32;
     if (s_light_count > MAX_LIGHTS) s_light_count = MAX_LIGHTS;
@@ -215,6 +220,18 @@ static void outbox_sent(DictionaryIterator *it, void *ctx) {}
 static void load_persisted(void) {
   if (persist_exists(PERSIST_KEY_QUICK_TOGGLE)) s_cfg_quick_toggle = persist_read_bool(PERSIST_KEY_QUICK_TOGGLE);
   if (persist_exists(PERSIST_KEY_AUTO_CLOSE))   s_cfg_auto_close   = persist_read_bool(PERSIST_KEY_AUTO_CLOSE);
+  if (persist_exists(PERSIST_KEY_MRU_ENABLED))  s_cfg_mru          = persist_read_bool(PERSIST_KEY_MRU_ENABLED);
+  if (persist_exists(PERSIST_KEY_MRU_COUNT)) {
+    int m = persist_read_int(PERSIST_KEY_MRU_COUNT);
+    if (m > MAX_LIGHTS) m = MAX_LIGHTS;
+    int mv = 0;
+    for (int i = 0; i < m; i++) {
+      if (!persist_exists(PERSIST_KEY_MRU_BASE + i)) break;
+      persist_read_string(PERSIST_KEY_MRU_BASE + i, s_mru[mv], NAME_LEN);
+      mv++;
+    }
+    s_mru_count = mv;
+  }
   if (!persist_exists(PERSIST_KEY_COUNT)) return;
   int n = persist_read_int(PERSIST_KEY_COUNT);
   if (n > MAX_LIGHTS) n = MAX_LIGHTS;
@@ -228,6 +245,7 @@ static void load_persisted(void) {
   }
   s_light_count = valid;
   if (valid > 0) s_state = ST_READY;   // cached list is usable immediately
+  rebuild_order();
 }
 
 static void save_persisted(void) {
@@ -236,6 +254,11 @@ static void save_persisted(void) {
   persist_write_int(PERSIST_KEY_COUNT, s_light_count);
   for (int i = 0; i < s_light_count && i < MAX_LIGHTS; i++) {
     persist_write_data(PERSIST_KEY_LIGHT_BASE + i, &s_lights[i], sizeof(Light));
+  }
+  persist_write_bool(PERSIST_KEY_MRU_ENABLED, s_cfg_mru);
+  persist_write_int(PERSIST_KEY_MRU_COUNT, s_mru_count);
+  for (int i = 0; i < s_mru_count && i < MAX_LIGHTS; i++) {
+    persist_write_string(PERSIST_KEY_MRU_BASE + i, s_mru[i]);
   }
 }
 
