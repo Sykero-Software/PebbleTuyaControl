@@ -1,1 +1,1 @@
-pebble.tuya@sykero.fi
+pebble.tuyalights@sykero.fi
