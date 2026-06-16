@@ -21,9 +21,14 @@ typedef struct {
 // Shared light state — defined in pebble-tuya.c.
 extern Light s_lights[MAX_LIGHTS];
 extern int s_light_count;
+// Control settings — defined in pebble-tuya.c, set from the phone (CfgQuickToggle/
+// CfgAutoClose) and persisted. control-window.c reads s_cfg_auto_close.
+extern bool s_cfg_quick_toggle;
+extern bool s_cfg_auto_close;
 
 // pebble-tuya.c
 void send_command(int index, int action);
+void begin_auto_close(int index);   // show "Switching…", close once CmdDone/timeout
 
 // control-window.c
 void control_window_push(int index);

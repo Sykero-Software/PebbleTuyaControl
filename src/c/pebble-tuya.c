@@ -12,9 +12,27 @@ enum { ST_LOADING = 0, ST_READY = 1, ST_NOCONFIG = 2 };
 static int s_state = ST_LOADING;
 static char s_error[64] = "";
 
+// Persist keys. Each Light is 48 bytes (< the 256-byte per-key cap), but 12 of them
+// (576 bytes) do NOT fit one key — so store one key per light + a count key.
+#define PERSIST_KEY_COUNT        100
+#define PERSIST_KEY_QUICK_TOGGLE 101
+#define PERSIST_KEY_AUTO_CLOSE   102
+#define PERSIST_KEY_LIGHT_BASE   200   // + i
+
+bool s_cfg_quick_toggle = true;    // default ON  (matches Clay defaultValue)
+bool s_cfg_auto_close   = false;   // default OFF (matches Clay defaultValue)
+
 static Window *s_list_window;
 static MenuLayer *s_menu;
 static StatusBarLayer *s_status;
+
+// --- Auto-close (close the app once a toggle's cloud command is confirmed) ---
+static int s_close_pending_index = -1;     // -1 = no close pending
+static AppTimer *s_close_timer = NULL;
+static Window *s_closing_window = NULL;
+static TextLayer *s_closing_text = NULL;
+static void do_close(void);
+static void cancel_auto_close(void);
 
 // --- AppMessage send ---
 void send_command(int index, int action) {
@@ -75,6 +93,7 @@ void list_window_reload(void) {
 static void inbox_received(DictionaryIterator *it, void *ctx) {
   Tuple *t;
   if ((t = dict_find(it, MESSAGE_KEY_ErrorMsg))) {
+    cancel_auto_close();
     strncpy(s_error, t->value->cstring, sizeof(s_error) - 1);
     s_error[sizeof(s_error) - 1] = '\0';
     list_window_reload(); return;
@@ -83,6 +102,10 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     s_state = t->value->int32 ? ST_READY : ST_NOCONFIG;
     s_error[0] = '\0';
   }
+  Tuple *qt = dict_find(it, MESSAGE_KEY_CfgQuickToggle);
+  if (qt) { s_cfg_quick_toggle = qt->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_QUICK_TOGGLE, s_cfg_quick_toggle); }
+  Tuple *ac = dict_find(it, MESSAGE_KEY_CfgAutoClose);
+  if (ac) { s_cfg_auto_close = ac->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_AUTO_CLOSE, s_cfg_auto_close); }
   if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
     s_light_count = t->value->int32;
     if (s_light_count > MAX_LIGHTS) s_light_count = MAX_LIGHTS;
@@ -102,6 +125,10 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   }
   list_window_reload();
   if (idx_t) control_window_refresh(idx_t->value->int32);
+  Tuple *cd = dict_find(it, MESSAGE_KEY_CmdDone);
+  if (cd && s_close_pending_index >= 0 && cd->value->int32 == s_close_pending_index) {
+    do_close();
+  }
 }
 
 static void outbox_failed(DictionaryIterator *it, AppMessageResult reason, void *ctx) {
@@ -111,7 +138,72 @@ static void outbox_failed(DictionaryIterator *it, AppMessageResult reason, void 
 
 static void outbox_sent(DictionaryIterator *it, void *ctx) {}
 
+static void load_persisted(void) {
+  if (persist_exists(PERSIST_KEY_QUICK_TOGGLE)) s_cfg_quick_toggle = persist_read_bool(PERSIST_KEY_QUICK_TOGGLE);
+  if (persist_exists(PERSIST_KEY_AUTO_CLOSE))   s_cfg_auto_close   = persist_read_bool(PERSIST_KEY_AUTO_CLOSE);
+  if (!persist_exists(PERSIST_KEY_COUNT)) return;
+  int n = persist_read_int(PERSIST_KEY_COUNT);
+  if (n > MAX_LIGHTS) n = MAX_LIGHTS;
+  int valid = 0;
+  for (int i = 0; i < n; i++) {
+    if (persist_exists(PERSIST_KEY_LIGHT_BASE + i) &&
+        persist_get_size(PERSIST_KEY_LIGHT_BASE + i) == (int)sizeof(Light)) {
+      persist_read_data(PERSIST_KEY_LIGHT_BASE + i, &s_lights[i], sizeof(Light));
+      valid++;
+    } else break;
+  }
+  s_light_count = valid;
+  if (valid > 0) s_state = ST_READY;   // cached list is usable immediately
+}
+
+static void save_persisted(void) {
+  persist_write_bool(PERSIST_KEY_QUICK_TOGGLE, s_cfg_quick_toggle);
+  persist_write_bool(PERSIST_KEY_AUTO_CLOSE, s_cfg_auto_close);
+  persist_write_int(PERSIST_KEY_COUNT, s_light_count);
+  for (int i = 0; i < s_light_count && i < MAX_LIGHTS; i++) {
+    persist_write_data(PERSIST_KEY_LIGHT_BASE + i, &s_lights[i], sizeof(Light));
+  }
+}
+
+static void closing_load(Window *w) {
+  Layer *root = window_get_root_layer(w);
+  GRect b = layer_get_bounds(root);
+  s_closing_text = text_layer_create(GRect(4, (b.size.h - 30) / 2, b.size.w - 8, 30));
+  text_layer_set_font(s_closing_text, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_text_alignment(s_closing_text, GTextAlignmentCenter);
+  text_layer_set_text(s_closing_text, "Switching…");
+  layer_add_child(root, text_layer_get_layer(s_closing_text));
+}
+static void closing_unload(Window *w) { text_layer_destroy(s_closing_text); s_closing_text = NULL; }
+
+static void close_timeout(void *ctx) { s_close_timer = NULL; do_close(); }
+
+void begin_auto_close(int index) {
+  s_close_pending_index = index;
+  if (!s_closing_window) {
+    s_closing_window = window_create();
+    window_set_window_handlers(s_closing_window, (WindowHandlers){ .load = closing_load, .unload = closing_unload });
+  }
+  window_stack_push(s_closing_window, true);
+  s_close_timer = app_timer_register(4000, close_timeout, NULL);   // fallback so it never hangs
+}
+
+static void cancel_auto_close(void) {
+  if (s_close_pending_index < 0) return;
+  s_close_pending_index = -1;
+  if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
+  if (s_closing_window && window_stack_get_top_window() == s_closing_window)
+    window_stack_remove(s_closing_window, true);
+}
+
+static void do_close(void) {
+  if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
+  s_close_pending_index = -1;
+  window_stack_pop_all(true);   // exits the app -> deinit() persists state
+}
+
 static void init(void) {
+  load_persisted();
   app_message_register_inbox_received(inbox_received);
   app_message_register_outbox_sent(outbox_sent);
   app_message_register_outbox_failed(outbox_failed);
@@ -123,7 +215,10 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  save_persisted();
+  if (s_close_timer) app_timer_cancel(s_close_timer);
   control_window_deinit();
+  if (s_closing_window) window_destroy(s_closing_window);
   window_destroy(s_list_window);
 }
 
