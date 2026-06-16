@@ -111,8 +111,10 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
   int li = (ci->row < s_light_count) ? s_order[ci->row] : ci->row;
   Light *l = &s_lights[li];
   static char sub[24];
-  if (!l->online) snprintf(sub, sizeof(sub), "Offline");
-  else if (l->on) snprintf(sub, sizeof(sub), "On · %d%%", l->bright);
+  if (!l->online) {
+    snprintf(sub, sizeof(sub), "Offline");
+    graphics_context_set_text_color(g, GColorLightGray);   // disabled look
+  } else if (l->on) snprintf(sub, sizeof(sub), "On · %d%%", l->bright);
   else snprintf(sub, sizeof(sub), "Off");
   menu_cell_basic_draw(g, cell, l->name, sub, NULL);
 }
