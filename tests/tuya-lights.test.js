@@ -112,15 +112,15 @@ describe('applyActionToState', () => {
 });
 
 describe('cfgToInts', () => {
-  test('defaults: quick-toggle on, auto-close off when keys absent', () => {
-    expect(L.cfgToInts({})).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0 });
-    expect(L.cfgToInts(undefined)).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0 });
+  test('defaults: quick-toggle on, auto-close off, mru on when keys absent', () => {
+    expect(L.cfgToInts({})).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1 });
+    expect(L.cfgToInts(undefined)).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1 });
   });
   test('maps booleans to ints', () => {
-    expect(L.cfgToInts({ CfgQuickToggle: false, CfgAutoClose: true }))
-      .toEqual({ CfgQuickToggle: 0, CfgAutoClose: 1 });
-    expect(L.cfgToInts({ CfgQuickToggle: true, CfgAutoClose: false }))
-      .toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0 });
+    expect(L.cfgToInts({ CfgQuickToggle: false, CfgAutoClose: true, CfgMru: false }))
+      .toEqual({ CfgQuickToggle: 0, CfgAutoClose: 1, CfgMru: 0 });
+    expect(L.cfgToInts({ CfgQuickToggle: true, CfgAutoClose: false, CfgMru: true }))
+      .toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1 });
   });
 });
 

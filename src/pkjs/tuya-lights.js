@@ -114,7 +114,8 @@ function cfgToInts(settings) {
   var s = settings || {};
   var qt = (s.CfgQuickToggle === undefined) ? 1 : (s.CfgQuickToggle ? 1 : 0);
   var ac = s.CfgAutoClose ? 1 : 0;
-  return { CfgQuickToggle: qt, CfgAutoClose: ac };
+  var mru = (s.CfgMru === undefined) ? 1 : (s.CfgMru ? 1 : 0);
+  return { CfgQuickToggle: qt, CfgAutoClose: ac, CfgMru: mru };
 }
 
 // A command can run only once the device's slot, caps and status are all loaded.
