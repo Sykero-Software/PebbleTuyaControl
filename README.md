@@ -43,9 +43,23 @@ same Smart Life account your lights are paired to.
 
 ## Controls
 
-- **List window:** your lights with on/off + brightness%. Select a light to open it.
+- **List window:** your lights with on/off + brightness%. Offline lights are greyed
+  out and inert. By default a **short SELECT toggles that light** directly and **hold
+  SELECT opens its control window**; with the "Tap in list toggles the light" setting
+  off, a short SELECT opens the control window instead.
 - **Control window:** SELECT toggles power; UP/DOWN adjust brightness; **hold
-  SELECT** switches UP/DOWN to colour temperature (lights that support it).
+  SELECT** switches UP/DOWN to colour temperature (on lights that support it).
+
+### Behavior settings (Clay config page)
+
+- **Tap in list toggles the light** (default on) — short tap toggles, hold opens the
+  control window; off = tap opens the control window.
+- **Close the app after toggling** (default off) — returns to the watchface once the
+  phone confirms the cloud command (a "Switching…" screen shows meanwhile).
+- **Sort list by most-recently used** (default on) — recently toggled lights rise to
+  the top; offline lights sink to the bottom.
+- **Auto-refresh while open** (default off) — state is always fetched on open; this
+  also re-polls while the app stays open (more data/battery).
 
 ## Build / test
 
