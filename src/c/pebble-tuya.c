@@ -22,6 +22,56 @@ static char s_error[64] = "";
 bool s_cfg_quick_toggle = true;    // default ON  (matches Clay defaultValue)
 bool s_cfg_auto_close   = false;   // default OFF (matches Clay defaultValue)
 
+// --- MRU (most-recently-used) ordering --------------------------------------
+// Recency identity is the light NAME (see spec). s_mru holds names most-recent
+// first; s_order maps a display row to an index into s_lights[].
+bool s_cfg_mru = true;                       // default ON (matches Clay defaultValue)
+static char s_mru[MAX_LIGHTS][NAME_LEN];
+static int  s_mru_count = 0;
+static int  s_order[MAX_LIGHTS];
+
+static int mru_rank(const char *name) {
+  for (int i = 0; i < s_mru_count; i++) {
+    if (strncmp(s_mru[i], name, NAME_LEN) == 0) return i;
+  }
+  return s_mru_count;   // unseen -> sorts after all seen names
+}
+
+static void mark_used(const char *name) {
+  if (!name || !name[0]) return;
+  int found = -1;
+  for (int i = 0; i < s_mru_count; i++) {
+    if (strncmp(s_mru[i], name, NAME_LEN) == 0) { found = i; break; }
+  }
+  if (found < 0) {
+    if (s_mru_count < MAX_LIGHTS) s_mru_count++;
+    found = s_mru_count - 1;            // overflow: reuse the last slot (drop oldest)
+  }
+  for (int i = found; i > 0; i--) strncpy(s_mru[i], s_mru[i - 1], NAME_LEN);
+  strncpy(s_mru[0], name, NAME_LEN - 1);
+  s_mru[0][NAME_LEN - 1] = '\0';
+}
+
+// true if light index a should sort before b: online first, then more-recent, then arrival.
+static bool order_less(int a, int b) {
+  if (s_lights[a].online != s_lights[b].online)
+    return s_lights[a].online > s_lights[b].online;
+  int ra = mru_rank(s_lights[a].name), rb = mru_rank(s_lights[b].name);
+  if (ra != rb) return ra < rb;
+  return a < b;
+}
+
+static void rebuild_order(void) {
+  int n = s_light_count; if (n > MAX_LIGHTS) n = MAX_LIGHTS;
+  for (int i = 0; i < n; i++) s_order[i] = i;
+  if (!s_cfg_mru) return;
+  for (int i = 1; i < n; i++) {            // stable insertion sort (n <= 12)
+    int cur = s_order[i], j = i - 1;
+    while (j >= 0 && order_less(cur, s_order[j])) { s_order[j + 1] = s_order[j]; j--; }
+    s_order[j + 1] = cur;
+  }
+}
+
 static Window *s_list_window;
 static MenuLayer *s_menu;
 static StatusBarLayer *s_status;
@@ -55,7 +105,8 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
   if (s_state == ST_LOADING) { menu_cell_basic_draw(g, cell, "Tuya Lights", "Loading…", NULL); return; }
   if (s_state == ST_NOCONFIG) { menu_cell_basic_draw(g, cell, "Tuya Lights", "Configure on phone…", NULL); return; }
   if (s_light_count == 0) { menu_cell_basic_draw(g, cell, "No lights found", NULL, NULL); return; }
-  Light *l = &s_lights[ci->row];
+  int li = (ci->row < s_light_count) ? s_order[ci->row] : ci->row;
+  Light *l = &s_lights[li];
   static char sub[24];
   if (!l->online) snprintf(sub, sizeof(sub), "Offline");
   else if (l->on) snprintf(sub, sizeof(sub), "On · %d%%", l->bright);
@@ -65,9 +116,9 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
 
 static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
-  if (!s_cfg_quick_toggle) { control_window_push(ci->row); return; }   // classic behaviour
-  int row = ci->row;
-  if (row >= s_light_count) return;
+  if (ci->row >= s_light_count) return;
+  if (!s_cfg_quick_toggle) { control_window_push(s_order[ci->row]); return; }   // classic behaviour
+  int row = s_order[ci->row];
   s_lights[row].on = !s_lights[row].on;   // optimistic; PKJS pushes authoritative state back
   send_command(row, ACT_TOGGLE);
   menu_layer_reload_data(s_menu);
@@ -77,7 +128,7 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
 static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   if (ci->row >= s_light_count) return;
-  control_window_push(ci->row);   // long press always opens the control window
+  control_window_push(s_order[ci->row]);   // long press always opens the control window
 }
 
 static void list_load(Window *w) {
@@ -136,6 +187,7 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
       if (i + 1 > s_light_count) s_light_count = i + 1;
     }
   }
+  rebuild_order();
   list_window_reload();
   if (idx_t) control_window_refresh(idx_t->value->int32);
   Tuple *cd = dict_find(it, MESSAGE_KEY_CmdDone);
