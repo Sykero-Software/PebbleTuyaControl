@@ -46,5 +46,17 @@ module.exports = [
       { "type": "text", "defaultValue": "State is always fetched when you open the app. Auto-refresh also re-polls while the app stays open (uses more data/battery)." }
     ]
   },
+  {
+    "type": "section",
+    "items": [
+      { "type": "heading", "defaultValue": "Controls" },
+      { "type": "toggle", "messageKey": "CfgQuickToggle",
+        "label": "Tap in list toggles the light (hold to open controls)",
+        "defaultValue": true },
+      { "type": "toggle", "messageKey": "CfgAutoClose",
+        "label": "Close the app after toggling",
+        "defaultValue": false }
+    ]
+  },
   { "type": "submit", "defaultValue": "Save" }
 ];

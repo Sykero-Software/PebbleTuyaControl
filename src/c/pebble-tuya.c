@@ -65,7 +65,18 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
 
 static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
-  control_window_push(ci->row);
+  if (!s_cfg_quick_toggle) { control_window_push(ci->row); return; }   // classic behaviour
+  int row = ci->row;
+  if (row >= s_light_count) return;
+  s_lights[row].on = !s_lights[row].on;   // optimistic; PKJS pushes authoritative state back
+  send_command(row, ACT_TOGGLE);
+  menu_layer_reload_data(s_menu);
+  if (s_cfg_auto_close) begin_auto_close(row);
+}
+
+static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
+  if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
+  control_window_push(ci->row);   // long press always opens the control window
 }
 
 static void list_load(Window *w) {
@@ -74,7 +85,8 @@ static void list_load(Window *w) {
   s_status = status_bar_layer_create();
   s_menu = menu_layer_create(GRect(0, STATUS_BAR_LAYER_HEIGHT, b.size.w, b.size.h - STATUS_BAR_LAYER_HEIGHT));
   menu_layer_set_callbacks(s_menu, NULL, (MenuLayerCallbacks){
-    .get_num_rows = menu_num_rows, .draw_row = menu_draw_row, .select_click = menu_select });
+    .get_num_rows = menu_num_rows, .draw_row = menu_draw_row,
+    .select_click = menu_select, .select_long_click = menu_select_long });
   menu_layer_set_click_config_onto_window(s_menu, w);
   layer_add_child(root, menu_layer_get_layer(s_menu));
   layer_add_child(root, status_bar_layer_get_layer(s_status));
@@ -176,15 +188,25 @@ static void closing_load(Window *w) {
 }
 static void closing_unload(Window *w) { text_layer_destroy(s_closing_text); s_closing_text = NULL; }
 
+// Swallow Back (and leave Up/Down/Select unsubscribed) while "Switching…" is shown:
+// the brief closing state can only end via CmdDone or the timeout, so it can't be
+// aborted into a half-state or double-toggled.
+static void closing_noop(ClickRecognizerRef r, void *ctx) {}
+static void closing_click_config(void *ctx) {
+  window_single_click_subscribe(BUTTON_ID_BACK, closing_noop);
+}
+
 static void close_timeout(void *ctx) { s_close_timer = NULL; do_close(); }
 
 void begin_auto_close(int index) {
+  if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }  // never orphan a prior timer
   s_close_pending_index = index;
   if (!s_closing_window) {
     s_closing_window = window_create();
     window_set_window_handlers(s_closing_window, (WindowHandlers){ .load = closing_load, .unload = closing_unload });
+    window_set_click_config_provider(s_closing_window, closing_click_config);
   }
-  window_stack_push(s_closing_window, true);
+  if (window_stack_get_top_window() != s_closing_window) window_stack_push(s_closing_window, true);
   s_close_timer = app_timer_register(4000, close_timeout, NULL);   // fallback so it never hangs
 }
 
@@ -192,8 +214,7 @@ static void cancel_auto_close(void) {
   if (s_close_pending_index < 0) return;
   s_close_pending_index = -1;
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
-  if (s_closing_window && window_stack_get_top_window() == s_closing_window)
-    window_stack_remove(s_closing_window, true);
+  if (s_closing_window) window_stack_remove(s_closing_window, true);   // no-op if not stacked
 }
 
 static void do_close(void) {

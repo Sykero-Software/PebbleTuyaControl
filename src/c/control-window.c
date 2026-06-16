@@ -45,6 +45,7 @@ static void select_click(ClickRecognizerRef r, void *ctx) {
   s_lights[s_index].on = !s_lights[s_index].on;
   send_command(s_index, ACT_TOGGLE);
   render();
+  if (s_cfg_auto_close) begin_auto_close(s_index);   // declared in tuya.h
 }
 static void select_long(ClickRecognizerRef r, void *ctx) {
   if (s_index < s_light_count && s_lights[s_index].temp >= 0) { s_temp_mode = !s_temp_mode; render(); }
