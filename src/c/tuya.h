@@ -29,6 +29,7 @@ extern bool s_cfg_auto_close;
 // pebble-tuya.c
 void send_command(int index, int action);
 void begin_auto_close(int index);   // show "Switching…", close once CmdDone/timeout
+void tuya_mark_used(int light_index);  // record recency for a light + reorder the list
 
 // control-window.c
 void control_window_push(int index);

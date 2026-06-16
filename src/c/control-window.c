@@ -32,6 +32,7 @@ static void up_click(ClickRecognizerRef r, void *ctx) {
   if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp + STEP); send_command(s_index, ACT_TEMP_UP); }
   else { l->bright = clamp_pct(l->bright + STEP); send_command(s_index, ACT_BRIGHT_UP); }
   render();
+  tuya_mark_used(s_index);
 }
 static void down_click(ClickRecognizerRef r, void *ctx) {
   if (s_index >= s_light_count) return;
@@ -39,12 +40,14 @@ static void down_click(ClickRecognizerRef r, void *ctx) {
   if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp - STEP); send_command(s_index, ACT_TEMP_DOWN); }
   else { l->bright = clamp_pct(l->bright - STEP); send_command(s_index, ACT_BRIGHT_DOWN); }
   render();
+  tuya_mark_used(s_index);
 }
 static void select_click(ClickRecognizerRef r, void *ctx) {
   if (s_index >= s_light_count) return;
   s_lights[s_index].on = !s_lights[s_index].on;
   send_command(s_index, ACT_TOGGLE);
   render();
+  tuya_mark_used(s_index);
   if (s_cfg_auto_close) begin_auto_close(s_index);   // declared in tuya.h
 }
 static void select_long(ClickRecognizerRef r, void *ctx) {

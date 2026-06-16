@@ -121,6 +121,8 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   int row = s_order[ci->row];
   s_lights[row].on = !s_lights[row].on;   // optimistic; PKJS pushes authoritative state back
   send_command(row, ACT_TOGGLE);
+  mark_used(s_lights[row].name);
+  rebuild_order();
   menu_layer_reload_data(s_menu);
   if (s_cfg_auto_close) begin_auto_close(row);
 }
@@ -151,6 +153,13 @@ static void list_unload(Window *w) {
 
 void list_window_reload(void) {
   if (s_menu) menu_layer_reload_data(s_menu);
+}
+
+void tuya_mark_used(int light_index) {
+  if (light_index < 0 || light_index >= s_light_count) return;
+  mark_used(s_lights[light_index].name);
+  rebuild_order();
+  list_window_reload();
 }
 
 // --- AppMessage receive ---
