@@ -44,6 +44,7 @@ static void down_click(ClickRecognizerRef r, void *ctx) {
 }
 static void select_click(ClickRecognizerRef r, void *ctx) {
   if (s_index >= s_light_count) return;
+  if (!s_lights[s_index].online) return;   // offline = disabled, silent no-op
   s_lights[s_index].on = !s_lights[s_index].on;
   send_command(s_index, ACT_TOGGLE);
   render();
