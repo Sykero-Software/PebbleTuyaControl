@@ -76,6 +76,7 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
 
 static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
+  if (ci->row >= s_light_count) return;
   control_window_push(ci->row);   // long press always opens the control window
 }
 
@@ -220,7 +221,10 @@ static void cancel_auto_close(void) {
 static void do_close(void) {
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
   s_close_pending_index = -1;
+  // One-click action done: exit to the watchface, not back to the launcher/menu.
+  exit_reason_set(APP_EXIT_ACTION_PERFORMED_SUCCESSFULLY);
   window_stack_pop_all(true);   // exits the app -> deinit() persists state
+  s_closing_window = NULL;      // drop our handle (app is exiting); avoids any double-destroy
 }
 
 static void init(void) {
