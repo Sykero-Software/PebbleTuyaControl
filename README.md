@@ -5,9 +5,7 @@ brightness, colour temperature) directly from the watch. No separate Android
 companion app — the watchapp's phone-side JavaScript (PKJS) calls the **Tuya
 Cloud OpenAPI** itself, and credentials are entered on the Clay config page.
 
-Part of the Sykerö ecosystem (see the `pebble-timetracking` superrepo). Design
-and plan: `docs/superpowers/{specs,plans}/2026-06-15-pebble-tuya-lights-*` in the
-superrepo.
+Part of the [Sykerö Software](https://github.com/Sykero-Software) ecosystem.
 
 ## Why cloud (not local LAN)
 
