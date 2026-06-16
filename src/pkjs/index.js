@@ -28,7 +28,7 @@ function drainPending() {
 
 function sendConfig() {
   var c = L.cfgToInts(readSettings());
-  sendMsg({ CfgQuickToggle: c.CfgQuickToggle, CfgAutoClose: c.CfgAutoClose });
+  sendMsg({ CfgQuickToggle: c.CfgQuickToggle, CfgAutoClose: c.CfgAutoClose, CfgMru: c.CfgMru });
 }
 
 function readSettings() {

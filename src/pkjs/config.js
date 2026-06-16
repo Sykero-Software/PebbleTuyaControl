@@ -55,7 +55,10 @@ module.exports = [
         "defaultValue": true },
       { "type": "toggle", "messageKey": "CfgAutoClose",
         "label": "Close the app after toggling",
-        "defaultValue": false }
+        "defaultValue": false },
+      { "type": "toggle", "messageKey": "CfgMru",
+        "label": "Sort list by most-recently used (offline last)",
+        "defaultValue": true }
     ]
   },
   { "type": "submit", "defaultValue": "Save" }
