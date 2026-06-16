@@ -111,6 +111,33 @@ describe('applyActionToState', () => {
   });
 });
 
+describe('cfgToInts', () => {
+  test('defaults: quick-toggle on, auto-close off when keys absent', () => {
+    expect(L.cfgToInts({})).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0 });
+    expect(L.cfgToInts(undefined)).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0 });
+  });
+  test('maps booleans to ints', () => {
+    expect(L.cfgToInts({ CfgQuickToggle: false, CfgAutoClose: true }))
+      .toEqual({ CfgQuickToggle: 0, CfgAutoClose: 1 });
+    expect(L.cfgToInts({ CfgQuickToggle: true, CfgAutoClose: false }))
+      .toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0 });
+  });
+});
+
+describe('commandDeliverable', () => {
+  const slots = [{ index: 0, id: 'A' }];
+  test('false when slot missing', () => {
+    expect(L.commandDeliverable(0, [], {}, {})).toBe(false);
+  });
+  test('false when caps or state missing', () => {
+    expect(L.commandDeliverable(0, slots, {}, { A: { on: 0 } })).toBe(false);
+    expect(L.commandDeliverable(0, slots, { A: { switchCode: 's' } }, {})).toBe(false);
+  });
+  test('true when slot, caps and state are present', () => {
+    expect(L.commandDeliverable(0, slots, { A: { switchCode: 's' } }, { A: { on: 0 } })).toBe(true);
+  });
+});
+
 describe('mapDevicesToSlots', () => {
   test('keeps only switchable lights, carries online flag', () => {
     const devs = [

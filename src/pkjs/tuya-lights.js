@@ -108,8 +108,26 @@ function mapDevicesToSlots(devices, capsById) {
   return all;
 }
 
+// Phone settings (Clay 'clay-settings', booleans/undefined) -> ints for the watch.
+// Defaults when a key has never been saved: quick-toggle ON, auto-close OFF.
+function cfgToInts(settings) {
+  var s = settings || {};
+  var qt = (s.CfgQuickToggle === undefined) ? 1 : (s.CfgQuickToggle ? 1 : 0);
+  var ac = s.CfgAutoClose ? 1 : 0;
+  return { CfgQuickToggle: qt, CfgAutoClose: ac };
+}
+
+// A command can run only once the device's slot, caps and status are all loaded.
+// Before that the command must be queued (replayed after loadAll), not dropped.
+function commandDeliverable(idx, slots, capsById, stateById) {
+  var slot = slots[idx];
+  if (!slot) return false;
+  return !!(capsById[slot.id] && stateById[slot.id]);
+}
+
 module.exports = {
   ACTIONS: ACTIONS, detectCaps: detectCaps, rawToPercent: rawToPercent, percentToRaw: percentToRaw,
   parseStatus: parseStatus, actionToCommands: actionToCommands,
-  applyActionToState: applyActionToState, mapDevicesToSlots: mapDevicesToSlots
+  applyActionToState: applyActionToState, mapDevicesToSlots: mapDevicesToSlots,
+  cfgToInts: cfgToInts, commandDeliverable: commandDeliverable
 };
