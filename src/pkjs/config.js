@@ -32,9 +32,17 @@ module.exports = [
   {
     "type": "section",
     "items": [
-      { "type": "heading", "defaultValue": "Refresh" },
-      {
-        "type": "select", "messageKey": "TuyaPollInterval", "label": "Auto-refresh while open",
+      { "type": "heading", "defaultValue": "Behavior" },
+      { "type": "toggle", "messageKey": "CfgQuickToggle",
+        "label": "Tap in list toggles the light (hold to open controls)",
+        "description": "When on, a short tap on a list row toggles that light; hold to open the per-light control window. When off, a tap opens the control window.",
+        "defaultValue": true },
+      { "type": "toggle", "messageKey": "CfgAutoClose",
+        "label": "Close the app after toggling",
+        "description": "When on, the app closes back to the watchface once the phone confirms the cloud command.",
+        "defaultValue": false },
+      { "type": "select", "messageKey": "TuyaPollInterval", "label": "Auto-refresh while open",
+        "description": "State is always fetched when you open the app. Auto-refresh also re-polls while the app stays open (uses more data/battery).",
         "defaultValue": "0",
         "options": [
           { "label": "Off (refresh on open only)", "value": "0" },
@@ -42,20 +50,7 @@ module.exports = [
           { "label": "Every 30 s", "value": "30" },
           { "label": "Every 60 s", "value": "60" }
         ]
-      },
-      { "type": "text", "defaultValue": "State is always fetched when you open the app. Auto-refresh also re-polls while the app stays open (uses more data/battery)." }
-    ]
-  },
-  {
-    "type": "section",
-    "items": [
-      { "type": "heading", "defaultValue": "Controls" },
-      { "type": "toggle", "messageKey": "CfgQuickToggle",
-        "label": "Tap in list toggles the light (hold to open controls)",
-        "defaultValue": true },
-      { "type": "toggle", "messageKey": "CfgAutoClose",
-        "label": "Close the app after toggling",
-        "defaultValue": false }
+      }
     ]
   },
   { "type": "submit", "defaultValue": "Save" }
