@@ -120,8 +120,9 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
 static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   if (ci->row >= s_light_count) return;
-  if (!s_cfg_quick_toggle) { control_window_push(s_order[ci->row]); return; }   // classic behaviour
   int row = s_order[ci->row];
+  if (!s_lights[row].online) return;   // offline = disabled, silent no-op
+  if (!s_cfg_quick_toggle) { control_window_push(row); return; }   // classic behaviour
   s_lights[row].on = !s_lights[row].on;   // optimistic; PKJS pushes authoritative state back
   send_command(row, ACT_TOGGLE);
   mark_used(s_lights[row].name);
@@ -133,7 +134,9 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
 static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   if (ci->row >= s_light_count) return;
-  control_window_push(s_order[ci->row]);   // long press always opens the control window
+  int row = s_order[ci->row];
+  if (!s_lights[row].online) return;   // offline = disabled, cannot open control window
+  control_window_push(row);
 }
 
 static void list_load(Window *w) {
