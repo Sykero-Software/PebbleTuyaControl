@@ -1,0 +1,3 @@
+Tuya Lights — control your smart lights from your wrist.
+
+See all your Tuya / Smart Life lights in one list and switch them on or off with a tap. Open a light to adjust its brightness and colour temperature. The list keeps your most-used lights on top and greys out any that are offline, and optional quick-toggle and auto-return settings keep control fast. Set up your Tuya cloud account once from your phone.

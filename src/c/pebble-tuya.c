@@ -172,6 +172,9 @@ void tuya_mark_used(int light_index) {
 
 // --- AppMessage receive ---
 static void inbox_received(DictionaryIterator *it, void *ctx) {
+#ifdef SCREENSHOT_FIXTURES
+  return;  // keep the seeded demo list; ignore PKJS state pushes (e.g. NOCONFIG) on the emulator
+#endif
   Tuple *t;
   if ((t = dict_find(it, MESSAGE_KEY_ErrorMsg))) {
     cancel_auto_close();
@@ -318,6 +321,18 @@ static void do_close(void) {
 
 static void init(void) {
   load_persisted();
+#ifdef SCREENSHOT_FIXTURES
+  // Deterministic demo light list for appstore screenshots (no phone/cloud needed).
+  // Compiled out of normal builds; enabled via the wscript SCREENSHOT_FIXTURES define.
+  s_light_count = 4;
+  strncpy(s_lights[0].name, "Living room", NAME_LEN - 1); s_lights[0].on = 1; s_lights[0].bright = 80;  s_lights[0].temp = 50; s_lights[0].online = 1;
+  strncpy(s_lights[1].name, "Kitchen",     NAME_LEN - 1); s_lights[1].on = 1; s_lights[1].bright = 100; s_lights[1].temp = -1; s_lights[1].online = 1;
+  strncpy(s_lights[2].name, "Bedroom",     NAME_LEN - 1); s_lights[2].on = 0; s_lights[2].bright = 40;  s_lights[2].temp = 30; s_lights[2].online = 1;
+  strncpy(s_lights[3].name, "Garage",      NAME_LEN - 1); s_lights[3].on = 0; s_lights[3].bright = 0;   s_lights[3].temp = -1; s_lights[3].online = 0;
+  s_state = ST_READY;
+  s_error[0] = '\0';
+  rebuild_order();
+#endif
   app_message_register_inbox_received(inbox_received);
   app_message_register_outbox_sent(outbox_sent);
   app_message_register_outbox_failed(outbox_failed);
