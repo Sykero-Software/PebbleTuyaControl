@@ -17,6 +17,19 @@ var REGION_HOST = {
 var slots = [];            // [{index, id, name}]
 var capsById = {};         // id -> caps
 var stateById = {};        // id -> {on,bright,temp}
+var _pendingCmds = [];      // commands received before slots/caps were ready
+
+function drainPending() {
+  if (!_pendingCmds.length) return;
+  var pend = _pendingCmds;
+  _pendingCmds = [];
+  pend.forEach(function (c) { handleCommand(c.idx, c.action); });
+}
+
+function sendConfig() {
+  var c = L.cfgToInts(readSettings());
+  sendMsg({ CfgQuickToggle: c.CfgQuickToggle, CfgAutoClose: c.CfgAutoClose });
+}
 
 function readSettings() {
   try { return JSON.parse(localStorage.getItem('clay-settings')) || {}; } catch (e) { return {}; }
@@ -128,30 +141,34 @@ function loadAll() {
     return chain.then(function () {
       slots = L.mapDevicesToSlots(devices, capsById);
       pushRows();
+      drainPending();
     });
   }).catch(function (e) { sendError(e.message || 'Tuya error'); });
 }
 
 function handleCommand(idx, action) {
-  var slot = slots[idx];
-  if (!slot) return;
   if (action === L.ACTIONS.REFRESH) { loadAll(); return; }
+  if (!L.commandDeliverable(idx, slots, capsById, stateById)) {
+    _pendingCmds.push({ idx: idx, action: action });   // replayed after loadAll()
+    return;
+  }
+  var slot = slots[idx];
   var caps = capsById[slot.id];
   var state = stateById[slot.id];
-  if (!caps || !state) return;            // device not fully loaded yet — avoid undefined deref
   var cmds = L.actionToCommands(action, state, caps);
   if (!cmds.length) return;
   var c = getClient();
   if (!c) { sendMsg({ Ready: 0 }); return; }
   c.request('POST', '/v1.0/iot-03/devices/' + slot.id + '/commands', { commands: cmds })
     .then(function () {
-      // Trust the ACKed command — do NOT re-read /status (the cloud lags the device
-      // and would return the stale pre-command value, flipping the UI back).
+      // Trust the ACKed command — do NOT re-read /status (the cloud lags the device).
       stateById[slot.id] = L.applyActionToState(action, state, caps);
-      sendMsg(rowMsg(slot, stateById[slot.id]));
+      var msg = rowMsg(slot, stateById[slot.id]);
+      msg.CmdDone = slot.index;   // confirmation signal for the watch's auto-close
+      sendMsg(msg);
     })
     .catch(function (e) {
-      // Command failed — revert the watch's optimistic update to the last known true state.
+      // Command failed — revert the watch's optimistic update to the last known state.
       if (stateById[slot.id]) sendMsg(rowMsg(slot, stateById[slot.id]));
       sendError(e.message || 'Command failed');
     });
@@ -165,7 +182,7 @@ function startPolling() {
   if (ms > 0) _pollTimer = setInterval(loadAll, ms);
 }
 
-Pebble.addEventListener('ready', function () { loadAll(); startPolling(); });
+Pebble.addEventListener('ready', function () { sendConfig(); loadAll(); startPolling(); });
 
 Pebble.addEventListener('showConfiguration', function () {
   Pebble.openURL(clay.generateUrl());
@@ -174,6 +191,7 @@ Pebble.addEventListener('showConfiguration', function () {
 Pebble.addEventListener('webviewclosed', function (e) {
   if (!e || !e.response) { return; }
   clay.getSettings(e.response); // persists flattened values to localStorage 'clay-settings'
+  sendConfig();                  // push the (possibly changed) control toggles to the watch
   loadAll();                     // refresh with the new credentials
   startPolling();                // apply any change to the auto-refresh interval
 });
