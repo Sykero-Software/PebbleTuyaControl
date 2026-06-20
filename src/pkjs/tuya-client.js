@@ -22,6 +22,17 @@ function createClient(cfg, http, deps) {
   var token = null;
   var tokenExpiresAt = 0;
 
+  // Reuse a token persisted by a previous app launch (Tuya tokens last ~2 h). PKJS
+  // is foreground-only and its memory is wiped on every app exit, so without this a
+  // cold start must re-fetch a token before it can issue any command — adding latency
+  // that, under auto-close, can let the app exit before the command reaches the cloud.
+  if (deps.loadToken) {
+    var saved = deps.loadToken(cfg.clientId);
+    if (saved && saved.token && deps.now() < saved.expiresAt) {
+      token = saved.token; tokenExpiresAt = saved.expiresAt;
+    }
+  }
+
   function headersFor(method, urlPath, bodyStr, accessToken) {
     var t = String(deps.now());
     var nonce = deps.nonce();
@@ -50,6 +61,7 @@ function createClient(cfg, http, deps) {
       if (!resp || !resp.success) throw new Error('token error ' + (resp && resp.code));
       token = resp.result.access_token;
       tokenExpiresAt = deps.now() + (resp.result.expire_time - 60) * 1000;
+      if (deps.saveToken) deps.saveToken(cfg.clientId, { token: token, expiresAt: tokenExpiresAt });
       return token;
     });
   }

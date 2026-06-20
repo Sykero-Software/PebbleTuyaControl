@@ -124,3 +124,44 @@ test('request() does not retry more than once on persistent 1010', async () => {
   await expect(c.request('GET', '/x')).rejects.toThrow(/1010/);
   expect(http.calls.length).toBe(4); // no infinite retry loop
 });
+
+describe('token persistence across app launches', () => {
+  test('getToken saves the token via deps.saveToken', async () => {
+    const http = fakeHttp([{ success: true, result: { access_token: 'TOK', expire_time: 7200 } }]);
+    let saved = null;
+    const d = { now: () => 1000, nonce: () => 'N', saveToken: (cid, v) => { saved = { cid: cid, v: v }; } };
+    const c = createClient(cfg, http, d);
+    await c.getToken();
+    expect(saved.cid).toBe('CID');
+    expect(saved.v.token).toBe('TOK');
+    expect(saved.v.expiresAt).toBe(1000 + (7200 - 60) * 1000);
+  });
+
+  test('a persisted valid token is reused, so request() needs only the business call', async () => {
+    const http = fakeHttp([{ success: true, result: { ok: 1 } }]);   // NO token call queued
+    const d = {
+      now: () => 1000, nonce: () => 'N',
+      loadToken: (cid) => (cid === 'CID' ? { token: 'CACHED', expiresAt: 9e15 } : null)
+    };
+    const c = createClient(cfg, http, d);
+    const res = await c.request('GET', '/x');
+    expect(res.result.ok).toBe(1);
+    expect(http.calls.length).toBe(1);                  // token fetch skipped
+    expect(http.calls[0].headers.access_token).toBe('CACHED');
+  });
+
+  test('an expired persisted token is ignored (re-fetched)', async () => {
+    const http = fakeHttp([
+      { success: true, result: { access_token: 'FRESH', expire_time: 7200 } },
+      { success: true, result: { ok: 1 } }
+    ]);
+    const d = {
+      now: () => 1000, nonce: () => 'N',
+      loadToken: () => ({ token: 'OLD', expiresAt: 500 })   // already expired (< now)
+    };
+    const c = createClient(cfg, http, d);
+    await c.request('GET', '/x');
+    expect(http.calls.length).toBe(2);                  // had to re-fetch the token
+    expect(http.calls[1].headers.access_token).toBe('FRESH');
+  });
+});

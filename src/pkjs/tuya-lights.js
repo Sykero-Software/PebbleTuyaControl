@@ -139,9 +139,26 @@ function commandDeliverable(id, slots, capsById, stateById) {
   return !!(capsById[slot.id] && stateById[slot.id]);
 }
 
+// Serialize the live model (slots + caps + state) for localStorage, so a relaunch
+// can deliver a command immediately from cache instead of waiting for the full
+// loadAll() device/spec/status chain (the cold-start latency that, with auto-close,
+// let the app exit before a queued command ever reached the cloud).
+var MODEL_VERSION = 1;
+function packModel(slots, capsById, stateById) {
+  return JSON.stringify({ v: MODEL_VERSION, slots: slots, caps: capsById, state: stateById });
+}
+function unpackModel(str) {
+  if (!str) return null;
+  var o;
+  try { o = JSON.parse(str); } catch (e) { return null; }
+  if (!o || o.v !== MODEL_VERSION || !Array.isArray(o.slots)) return null;
+  return { slots: o.slots, capsById: o.caps || {}, stateById: o.state || {} };
+}
+
 module.exports = {
   ACTIONS: ACTIONS, detectCaps: detectCaps, rawToPercent: rawToPercent, percentToRaw: percentToRaw,
   parseStatus: parseStatus, actionToCommands: actionToCommands,
   applyActionToState: applyActionToState, mapDevicesToSlots: mapDevicesToSlots,
-  cfgToInts: cfgToInts, resolveSlot: resolveSlot, commandDeliverable: commandDeliverable
+  cfgToInts: cfgToInts, resolveSlot: resolveSlot, commandDeliverable: commandDeliverable,
+  packModel: packModel, unpackModel: unpackModel
 };

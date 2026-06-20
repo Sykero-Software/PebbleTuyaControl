@@ -53,11 +53,12 @@ static void select_click(ClickRecognizerRef r, void *ctx) {
   int i = ctrl_index();
   if (i < 0) return;
   if (!s_lights[i].online) return;   // offline = disabled, silent no-op
+  Light prev = s_lights[i];          // confirmed state, restored if the command is unconfirmed
   s_lights[i].on = !s_lights[i].on;
   send_command(i, ACT_TOGGLE);
   render();
   tuya_mark_used(i);
-  if (s_cfg_auto_close) begin_auto_close(i);   // declared in tuya.h
+  if (s_cfg_auto_close) begin_auto_close(i, &prev);   // declared in tuya.h
 }
 static void select_long(ClickRecognizerRef r, void *ctx) {
   int i = ctrl_index();

@@ -74,12 +74,43 @@ function http(opts) {
   });
 }
 
+// Persist the Tuya token (keyed by client id) so a relaunch reuses a still-valid
+// token instead of re-fetching one before it can issue a command.
+var TOKEN_CACHE_KEY = 'tuya-token';
 var deps = {
   now: function () { return Date.now(); },
   nonce: function () {
     return 'xxxxxxxx'.replace(/x/g, function () { return Math.floor(Math.random() * 16).toString(16); });
+  },
+  loadToken: function (clientId) {
+    try { var o = JSON.parse(localStorage.getItem(TOKEN_CACHE_KEY)); return (o && o.clientId === clientId) ? o : null; }
+    catch (e) { return null; }
+  },
+  saveToken: function (clientId, v) {
+    try { localStorage.setItem(TOKEN_CACHE_KEY, JSON.stringify({ clientId: clientId, token: v.token, expiresAt: v.expiresAt })); }
+    catch (e) {}
   }
 };
+
+// Cache the device model (slots + caps + state) across launches so a command is
+// deliverable from cache immediately on startup — without it, the cold-start loadAll
+// chain (token + devices + per-device spec + status) ran long enough that, under
+// auto-close, the app exited before a queued command reached the cloud.
+var MODEL_CACHE_KEY = 'tuya-model';
+function saveModel() {
+  try { localStorage.setItem(MODEL_CACHE_KEY, L.packModel(slots, capsById, stateById)); } catch (e) {}
+}
+function loadModel() {
+  var m = null;
+  try { m = L.unpackModel(localStorage.getItem(MODEL_CACHE_KEY)); } catch (e) { m = null; }
+  if (!m) return false;
+  slots = m.slots; capsById = m.capsById; stateById = m.stateById;
+  return true;
+}
+function clearModel() {
+  slots = []; capsById = {}; stateById = {};
+  try { localStorage.removeItem(MODEL_CACHE_KEY); } catch (e) {}
+}
 
 // Pebble has a SINGLE outbox: a second sendAppMessage before the first is ACKed is
 // dropped (APP_MSG_BUSY). Serialize all outbound messages through an ack-gated queue
@@ -140,6 +171,7 @@ function loadAll() {
     });
     return chain.then(function () {
       slots = L.mapDevicesToSlots(devices, capsById);
+      saveModel();   // refresh the cross-launch cache with the authoritative model
       pushRows();
       drainPending();
     });
@@ -163,6 +195,7 @@ function handleCommand(id, action) {
     .then(function () {
       // Trust the ACKed command — do NOT re-read /status (the cloud lags the device).
       stateById[slot.id] = L.applyActionToState(action, state, caps);
+      saveModel();   // persist the confirmed state so a relaunch starts from truth
       var msg = rowMsg(slot, stateById[slot.id]);
       msg.CmdDone = slot.id;   // confirmation signal for the watch's auto-close (by id)
       sendMsg(msg);
@@ -182,7 +215,14 @@ function startPolling() {
   if (ms > 0) _pollTimer = setInterval(loadAll, ms);
 }
 
-Pebble.addEventListener('ready', function () { sendConfig(); loadAll(); startPolling(); });
+Pebble.addEventListener('ready', function () {
+  sendConfig();
+  // Restore the cached model first so a command pressed during the cold-start
+  // refresh is deliverable immediately (POSTed now) instead of queued until loadAll.
+  if (loadModel()) pushRows();
+  loadAll();
+  startPolling();
+});
 
 Pebble.addEventListener('showConfiguration', function () {
   Pebble.openURL(clay.generateUrl());
@@ -192,6 +232,7 @@ Pebble.addEventListener('webviewclosed', function (e) {
   if (!e || !e.response) { return; }
   clay.getSettings(e.response); // persists flattened values to localStorage 'clay-settings'
   sendConfig();                  // push the (possibly changed) control toggles to the watch
+  clearModel();                  // credentials may have changed account -> drop stale cache
   loadAll();                     // refresh with the new credentials
   startPolling();                // apply any change to the auto-refresh interval
 });

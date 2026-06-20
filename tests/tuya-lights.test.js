@@ -168,6 +168,30 @@ describe('commandDeliverable', () => {
   });
 });
 
+describe('packModel / unpackModel (localStorage cache)', () => {
+  const slots = [{ index: 0, id: 'a', name: 'A', online: 1 }];
+  const caps = { a: { switchCode: 'switch_led' } };
+  const state = { a: { on: 1, bright: 80, temp: -1 } };
+
+  test('round-trips slots, caps and state', () => {
+    const out = L.unpackModel(L.packModel(slots, caps, state));
+    expect(out.slots).toEqual(slots);
+    expect(out.capsById).toEqual(caps);
+    expect(out.stateById).toEqual(state);
+  });
+  test('returns null for empty/garbage input', () => {
+    expect(L.unpackModel(null)).toBeNull();
+    expect(L.unpackModel('')).toBeNull();
+    expect(L.unpackModel('{not json')).toBeNull();
+    expect(L.unpackModel('{"v":999,"slots":[]}')).toBeNull();  // version mismatch
+    expect(L.unpackModel('{"v":1}')).toBeNull();                // no slots array
+  });
+  test('a command is deliverable straight from the unpacked cache', () => {
+    const m = L.unpackModel(L.packModel(slots, caps, state));
+    expect(L.commandDeliverable('a', m.slots, m.capsById, m.stateById)).toBe(true);
+  });
+});
+
 describe('mapDevicesToSlots', () => {
   test('keeps only switchable lights, carries online flag', () => {
     const devs = [

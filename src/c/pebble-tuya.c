@@ -81,6 +81,7 @@ static StatusBarLayer *s_status;
 
 // --- Auto-close (close the app once a toggle's cloud command is confirmed) ---
 static char s_close_pending_id[ID_LEN] = "";   // "" = no close pending; matched against CmdDone
+static Light s_close_snapshot;                  // pre-command state, restored if unconfirmed
 static AppTimer *s_close_timer = NULL;
 static Window *s_closing_window = NULL;
 static TextLayer *s_closing_text = NULL;
@@ -138,12 +139,13 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   int row = s_order[ci->row];
   if (!s_lights[row].online) return;   // offline = disabled, silent no-op
   if (!s_cfg_quick_toggle) { control_window_push(row); return; }   // classic behaviour
+  Light prev = s_lights[row];             // confirmed state, restored if the command is unconfirmed
   s_lights[row].on = !s_lights[row].on;   // optimistic; PKJS pushes authoritative state back
   send_command(row, ACT_TOGGLE);
   mark_used(s_lights[row].name);
   rebuild_order();
   menu_layer_reload_data(s_menu);
-  if (s_cfg_auto_close) begin_auto_close(row);
+  if (s_cfg_auto_close) begin_auto_close(row, &prev);
 }
 
 static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
@@ -307,13 +309,28 @@ static void closing_click_config(void *ctx) {
   window_single_click_subscribe(BUTTON_ID_BACK, closing_noop);
 }
 
-static void close_timeout(void *ctx) { s_close_timer = NULL; do_close(); }
+// No confirmation arrived in time. The command likely never reached the cloud
+// (phone unreachable / hung), so DON'T exit as if it succeeded: revert the optimistic
+// change to the snapshot and surface an error, leaving the app open so the watch never
+// reports a state the cloud never received.
+static void close_timeout(void *ctx) {
+  s_close_timer = NULL;
+  int i = find_light_by_id(s_close_pending_id);
+  if (i >= 0) s_lights[i] = s_close_snapshot;   // restore last-known (confirmed) state
+  s_close_pending_id[0] = '\0';
+  if (s_closing_window) window_stack_remove(s_closing_window, true);
+  strncpy(s_error, "No response from phone", sizeof(s_error) - 1);
+  s_error[sizeof(s_error) - 1] = '\0';
+  rebuild_order();
+  list_window_reload();
+}
 
-void begin_auto_close(int index) {
+void begin_auto_close(int index, const Light *prev) {
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }  // never orphan a prior timer
   if (index >= 0 && index < s_light_count) {
     strncpy(s_close_pending_id, s_lights[index].id, ID_LEN - 1);   // match CmdDone by stable id
     s_close_pending_id[ID_LEN - 1] = '\0';
+    if (prev) s_close_snapshot = *prev;                            // for revert on timeout
   }
   if (!s_closing_window) {
     s_closing_window = window_create();
@@ -321,7 +338,7 @@ void begin_auto_close(int index) {
     window_set_click_config_provider(s_closing_window, closing_click_config);
   }
   if (window_stack_get_top_window() != s_closing_window) window_stack_push(s_closing_window, true);
-  s_close_timer = app_timer_register(4000, close_timeout, NULL);   // fallback so it never hangs
+  s_close_timer = app_timer_register(8000, close_timeout, NULL);   // revert+error if unconfirmed by then
 }
 
 static void cancel_auto_close(void) {
