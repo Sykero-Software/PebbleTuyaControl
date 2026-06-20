@@ -118,10 +118,23 @@ function cfgToInts(settings) {
   return { CfgQuickToggle: qt, CfgAutoClose: ac, CfgMru: mru };
 }
 
+// Resolve a slot by its STABLE Tuya device id, never by list position. The watch
+// addresses commands by id because slots are reordered independently by loadAll()
+// (online-first + device add/remove), so a positional index can drift to the wrong
+// device between the button press and the command being processed. Returns null if
+// the id is empty/unknown (e.g. the device was removed since the list was pushed).
+function resolveSlot(id, slots) {
+  if (!id) return null;
+  for (var i = 0; i < slots.length; i++) {
+    if (slots[i].id === id) return slots[i];
+  }
+  return null;
+}
+
 // A command can run only once the device's slot, caps and status are all loaded.
 // Before that the command must be queued (replayed after loadAll), not dropped.
-function commandDeliverable(idx, slots, capsById, stateById) {
-  var slot = slots[idx];
+function commandDeliverable(id, slots, capsById, stateById) {
+  var slot = resolveSlot(id, slots);
   if (!slot) return false;
   return !!(capsById[slot.id] && stateById[slot.id]);
 }
@@ -130,5 +143,5 @@ module.exports = {
   ACTIONS: ACTIONS, detectCaps: detectCaps, rawToPercent: rawToPercent, percentToRaw: percentToRaw,
   parseStatus: parseStatus, actionToCommands: actionToCommands,
   applyActionToState: applyActionToState, mapDevicesToSlots: mapDevicesToSlots,
-  cfgToInts: cfgToInts, commandDeliverable: commandDeliverable
+  cfgToInts: cfgToInts, resolveSlot: resolveSlot, commandDeliverable: commandDeliverable
 };

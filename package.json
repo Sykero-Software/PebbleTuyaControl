@@ -24,7 +24,8 @@
     "messageKeys": [
       "ListCount", "RowIndex", "RowName", "RowOn", "RowBright", "RowTemp",
       "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready", "RowOnline",
-      "CfgQuickToggle", "CfgAutoClose", "CmdDone", "CfgMru"
+      "CfgQuickToggle", "CfgAutoClose", "CmdDone", "CfgMru",
+      "RowId", "CmdLightId"
     ],
     "resources": {
       "media": [

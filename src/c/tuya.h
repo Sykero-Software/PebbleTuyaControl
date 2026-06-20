@@ -3,6 +3,7 @@
 
 #define MAX_LIGHTS 12
 #define NAME_LEN 32
+#define ID_LEN 32   // Tuya device id (~20-22 chars); the STABLE light identifier
 
 // CmdAction enum — must match L.ACTIONS in tuya-lights.js.
 enum {
@@ -12,6 +13,7 @@ enum {
 
 typedef struct {
   char name[NAME_LEN];
+  char id[ID_LEN];   // stable Tuya device id — used to address commands (not the array index)
   int on;       // 0/1
   int bright;   // 0-100
   int temp;     // 0-100, -1 = unsupported
@@ -27,11 +29,12 @@ extern bool s_cfg_quick_toggle;
 extern bool s_cfg_auto_close;
 
 // pebble-tuya.c
+int  find_light_by_id(const char *id);   // -> s_lights[] index for a stable id, or -1
 void send_command(int index, int action);
 void begin_auto_close(int index);   // show "Switching…", close once CmdDone/timeout
 void tuya_mark_used(int light_index);  // record recency for a light + reorder the list
 
 // control-window.c
 void control_window_push(int index);
-void control_window_refresh(int index);
+void control_window_refresh(const char *id);   // re-render iff the open light matches this id
 void control_window_deinit(void);

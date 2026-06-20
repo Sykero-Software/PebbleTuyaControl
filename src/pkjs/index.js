@@ -23,7 +23,7 @@ function drainPending() {
   if (!_pendingCmds.length) return;
   var pend = _pendingCmds;
   _pendingCmds = [];
-  pend.forEach(function (c) { handleCommand(c.idx, c.action); });
+  pend.forEach(function (c) { handleCommand(c.id, c.action); });
 }
 
 function sendConfig() {
@@ -102,7 +102,7 @@ function sendError(msg) {
 
 function rowMsg(slot, st) {
   return {
-    RowIndex: slot.index, RowName: slot.name,
+    RowIndex: slot.index, RowId: slot.id, RowName: slot.name,
     RowOn: st.on, RowBright: st.bright, RowTemp: st.temp, RowOnline: slot.online
   };
 }
@@ -146,13 +146,13 @@ function loadAll() {
   }).catch(function (e) { sendError(e.message || 'Tuya error'); });
 }
 
-function handleCommand(idx, action) {
+function handleCommand(id, action) {
   if (action === L.ACTIONS.REFRESH) { loadAll(); return; }
-  if (!L.commandDeliverable(idx, slots, capsById, stateById)) {
-    _pendingCmds.push({ idx: idx, action: action });   // replayed after loadAll()
+  if (!L.commandDeliverable(id, slots, capsById, stateById)) {
+    _pendingCmds.push({ id: id, action: action });   // replayed after loadAll()
     return;
   }
-  var slot = slots[idx];
+  var slot = L.resolveSlot(id, slots);   // by stable device id, never by list position
   var caps = capsById[slot.id];
   var state = stateById[slot.id];
   var cmds = L.actionToCommands(action, state, caps);
@@ -164,7 +164,7 @@ function handleCommand(idx, action) {
       // Trust the ACKed command — do NOT re-read /status (the cloud lags the device).
       stateById[slot.id] = L.applyActionToState(action, state, caps);
       var msg = rowMsg(slot, stateById[slot.id]);
-      msg.CmdDone = slot.index;   // confirmation signal for the watch's auto-close
+      msg.CmdDone = slot.id;   // confirmation signal for the watch's auto-close (by id)
       sendMsg(msg);
     })
     .catch(function (e) {
@@ -198,7 +198,7 @@ Pebble.addEventListener('webviewclosed', function (e) {
 
 Pebble.addEventListener('appmessage', function (e) {
   var p = e.payload;
-  if (p.CmdAction !== undefined && p.CmdLightIndex !== undefined) {
-    handleCommand(p.CmdLightIndex, p.CmdAction);
+  if (p.CmdAction !== undefined && p.CmdLightId !== undefined) {
+    handleCommand(p.CmdLightId, p.CmdAction);
   }
 });

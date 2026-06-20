@@ -124,17 +124,47 @@ describe('cfgToInts', () => {
   });
 });
 
+describe('resolveSlot', () => {
+  test('finds the slot by stable device id, not by position', () => {
+    const slots = [
+      { index: 0, id: 'A', name: 'A' },
+      { index: 1, id: 'B', name: 'B' }
+    ];
+    expect(L.resolveSlot('B', slots).index).toBe(1);
+    expect(L.resolveSlot('A', slots).id).toBe('A');
+  });
+  test('returns null for an unknown id (device removed)', () => {
+    expect(L.resolveSlot('gone', [{ index: 0, id: 'A' }])).toBeNull();
+  });
+  test('returns null for an empty/undefined id', () => {
+    expect(L.resolveSlot('', [{ index: 0, id: 'A' }])).toBeNull();
+    expect(L.resolveSlot(undefined, [{ index: 0, id: 'A' }])).toBeNull();
+  });
+  test('reorder-safe: the addressed device is hit even after slots reorder', () => {
+    // The user addressed "living" while it sat at index 0; a poll then reordered
+    // slots (online-first) so index 0 is now a different device. Resolving by id
+    // must still target "living", never whatever now occupies index 0.
+    const reordered = [
+      { index: 0, id: 'kitchen', name: 'Kitchen' },
+      { index: 1, id: 'living', name: 'Living' }
+    ];
+    expect(L.resolveSlot('living', reordered).id).toBe('living');
+    expect(L.resolveSlot('living', reordered).index).toBe(1);
+  });
+});
+
 describe('commandDeliverable', () => {
   const slots = [{ index: 0, id: 'A' }];
-  test('false when slot missing', () => {
-    expect(L.commandDeliverable(0, [], {}, {})).toBe(false);
+  test('false when id not found in slots', () => {
+    expect(L.commandDeliverable('A', [], {}, {})).toBe(false);
+    expect(L.commandDeliverable('gone', slots, { A: { switchCode: 's' } }, { A: { on: 0 } })).toBe(false);
   });
   test('false when caps or state missing', () => {
-    expect(L.commandDeliverable(0, slots, {}, { A: { on: 0 } })).toBe(false);
-    expect(L.commandDeliverable(0, slots, { A: { switchCode: 's' } }, {})).toBe(false);
+    expect(L.commandDeliverable('A', slots, {}, { A: { on: 0 } })).toBe(false);
+    expect(L.commandDeliverable('A', slots, { A: { switchCode: 's' } }, {})).toBe(false);
   });
   test('true when slot, caps and state are present', () => {
-    expect(L.commandDeliverable(0, slots, { A: { switchCode: 's' } }, { A: { on: 0 } })).toBe(true);
+    expect(L.commandDeliverable('A', slots, { A: { switchCode: 's' } }, { A: { on: 0 } })).toBe(true);
   });
 });
 

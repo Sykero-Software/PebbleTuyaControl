@@ -80,18 +80,31 @@ static MenuLayer *s_menu;
 static StatusBarLayer *s_status;
 
 // --- Auto-close (close the app once a toggle's cloud command is confirmed) ---
-static int s_close_pending_index = -1;     // -1 = no close pending
+static char s_close_pending_id[ID_LEN] = "";   // "" = no close pending; matched against CmdDone
 static AppTimer *s_close_timer = NULL;
 static Window *s_closing_window = NULL;
 static TextLayer *s_closing_text = NULL;
 static void do_close(void);
 static void cancel_auto_close(void);
 
+// --- Stable-id lookup ---
+// The list (both here and the phone's slots) can be reordered asynchronously
+// (online-first sort, device add/remove, MRU). So commands are addressed by the
+// stable Tuya device id, never by list position — resolve the current index here.
+int find_light_by_id(const char *id) {
+  if (!id || !id[0]) return -1;
+  for (int i = 0; i < s_light_count && i < MAX_LIGHTS; i++) {
+    if (strcmp(s_lights[i].id, id) == 0) return i;
+  }
+  return -1;
+}
+
 // --- AppMessage send ---
 void send_command(int index, int action) {
+  if (index < 0 || index >= s_light_count) return;
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) != APP_MSG_OK) return;
-  dict_write_int32(it, MESSAGE_KEY_CmdLightIndex, index);
+  dict_write_cstring(it, MESSAGE_KEY_CmdLightId, s_lights[index].id);   // stable id, not position
   dict_write_int32(it, MESSAGE_KEY_CmdAction, action);
   app_message_outbox_send();
 }
@@ -200,6 +213,8 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   if (idx_t) {
     int i = idx_t->value->int32;
     if (i >= 0 && i < MAX_LIGHTS) {
+      Tuple *id = dict_find(it, MESSAGE_KEY_RowId);
+      if (id) { strncpy(s_lights[i].id, id->value->cstring, ID_LEN - 1); s_lights[i].id[ID_LEN - 1] = '\0'; }
       Tuple *n = dict_find(it, MESSAGE_KEY_RowName);
       if (n) { strncpy(s_lights[i].name, n->value->cstring, NAME_LEN - 1); s_lights[i].name[NAME_LEN - 1] = '\0'; }
       Tuple *on = dict_find(it, MESSAGE_KEY_RowOn);     if (on) s_lights[i].on = on->value->int32;
@@ -211,9 +226,12 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   }
   rebuild_order();
   list_window_reload();
-  if (idx_t) control_window_refresh(idx_t->value->int32);
+  if (idx_t) {
+    Tuple *rid = dict_find(it, MESSAGE_KEY_RowId);
+    if (rid) control_window_refresh(rid->value->cstring);
+  }
   Tuple *cd = dict_find(it, MESSAGE_KEY_CmdDone);
-  if (cd && s_close_pending_index >= 0 && cd->value->int32 == s_close_pending_index) {
+  if (cd && s_close_pending_id[0] && strcmp(cd->value->cstring, s_close_pending_id) == 0) {
     do_close();
   }
 }
@@ -293,7 +311,10 @@ static void close_timeout(void *ctx) { s_close_timer = NULL; do_close(); }
 
 void begin_auto_close(int index) {
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }  // never orphan a prior timer
-  s_close_pending_index = index;
+  if (index >= 0 && index < s_light_count) {
+    strncpy(s_close_pending_id, s_lights[index].id, ID_LEN - 1);   // match CmdDone by stable id
+    s_close_pending_id[ID_LEN - 1] = '\0';
+  }
   if (!s_closing_window) {
     s_closing_window = window_create();
     window_set_window_handlers(s_closing_window, (WindowHandlers){ .load = closing_load, .unload = closing_unload });
@@ -304,15 +325,15 @@ void begin_auto_close(int index) {
 }
 
 static void cancel_auto_close(void) {
-  if (s_close_pending_index < 0) return;
-  s_close_pending_index = -1;
+  if (!s_close_pending_id[0]) return;
+  s_close_pending_id[0] = '\0';
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
   if (s_closing_window) window_stack_remove(s_closing_window, true);   // no-op if not stacked
 }
 
 static void do_close(void) {
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
-  s_close_pending_index = -1;
+  s_close_pending_id[0] = '\0';
   // One-click action done: exit to the watchface, not back to the launcher/menu.
   exit_reason_set(APP_EXIT_ACTION_PERFORMED_SUCCESSFULLY);
   window_stack_pop_all(true);   // exits the app -> deinit() persists state

@@ -5,15 +5,20 @@
 
 static Window *s_ctrl_window;   // created once, reused across pushes (no per-push leak)
 static TextLayer *s_title, *s_value, *s_hint;
-static int s_index;
+static char s_ctrl_id[ID_LEN];  // the open light's stable id; index re-resolved per action
 static int s_temp_mode = 0; // 0 = brightness, 1 = colour temp
 static bool s_loaded = false;
 
 static int clamp_pct(int v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
 
+// The list can be reordered asynchronously while this window is open, so never cache
+// an index — resolve the current s_lights[] position from the stable id each time.
+static int ctrl_index(void) { return find_light_by_id(s_ctrl_id); }
+
 static void render(void) {
-  if (!s_loaded || s_index < 0 || s_index >= s_light_count) return;
-  Light *l = &s_lights[s_index];
+  int idx = ctrl_index();
+  if (!s_loaded || idx < 0) return;
+  Light *l = &s_lights[idx];
   const char *statusw = !l->online ? "Offline" : (l->on ? "On" : "Off");
   static char val[48];
   if (s_temp_mode) snprintf(val, sizeof(val), "%s\nTemp %d%%", statusw, l->temp < 0 ? 0 : l->temp);
@@ -27,32 +32,36 @@ static void render(void) {
 // command. PKJS pushes the authoritative state back on completion (and reverts to
 // the last known state if the command fails), so the watch self-corrects.
 static void up_click(ClickRecognizerRef r, void *ctx) {
-  if (s_index >= s_light_count) return;
-  Light *l = &s_lights[s_index];
-  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp + STEP); send_command(s_index, ACT_TEMP_UP); }
-  else { l->bright = clamp_pct(l->bright + STEP); send_command(s_index, ACT_BRIGHT_UP); }
+  int i = ctrl_index();
+  if (i < 0) return;
+  Light *l = &s_lights[i];
+  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp + STEP); send_command(i, ACT_TEMP_UP); }
+  else { l->bright = clamp_pct(l->bright + STEP); send_command(i, ACT_BRIGHT_UP); }
   render();
-  tuya_mark_used(s_index);
+  tuya_mark_used(i);
 }
 static void down_click(ClickRecognizerRef r, void *ctx) {
-  if (s_index >= s_light_count) return;
-  Light *l = &s_lights[s_index];
-  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp - STEP); send_command(s_index, ACT_TEMP_DOWN); }
-  else { l->bright = clamp_pct(l->bright - STEP); send_command(s_index, ACT_BRIGHT_DOWN); }
+  int i = ctrl_index();
+  if (i < 0) return;
+  Light *l = &s_lights[i];
+  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp - STEP); send_command(i, ACT_TEMP_DOWN); }
+  else { l->bright = clamp_pct(l->bright - STEP); send_command(i, ACT_BRIGHT_DOWN); }
   render();
-  tuya_mark_used(s_index);
+  tuya_mark_used(i);
 }
 static void select_click(ClickRecognizerRef r, void *ctx) {
-  if (s_index >= s_light_count) return;
-  if (!s_lights[s_index].online) return;   // offline = disabled, silent no-op
-  s_lights[s_index].on = !s_lights[s_index].on;
-  send_command(s_index, ACT_TOGGLE);
+  int i = ctrl_index();
+  if (i < 0) return;
+  if (!s_lights[i].online) return;   // offline = disabled, silent no-op
+  s_lights[i].on = !s_lights[i].on;
+  send_command(i, ACT_TOGGLE);
   render();
-  tuya_mark_used(s_index);
-  if (s_cfg_auto_close) begin_auto_close(s_index);   // declared in tuya.h
+  tuya_mark_used(i);
+  if (s_cfg_auto_close) begin_auto_close(i);   // declared in tuya.h
 }
 static void select_long(ClickRecognizerRef r, void *ctx) {
-  if (s_index < s_light_count && s_lights[s_index].temp >= 0) { s_temp_mode = !s_temp_mode; render(); }
+  int i = ctrl_index();
+  if (i >= 0 && s_lights[i].temp >= 0) { s_temp_mode = !s_temp_mode; render(); }
 }
 
 static void click_config(void *ctx) {
@@ -87,19 +96,22 @@ static void ctrl_unload(Window *w) {
 }
 
 // Called by the list window's inbox handler after a row update, to refresh if showing.
-void control_window_refresh(int index) {
-  if (s_ctrl_window && window_stack_get_top_window() == s_ctrl_window && index == s_index) render();
+void control_window_refresh(const char *id) {
+  if (s_ctrl_window && window_stack_get_top_window() == s_ctrl_window
+      && id && s_ctrl_id[0] && strcmp(id, s_ctrl_id) == 0) render();
 }
 
 void control_window_push(int index) {
-  s_index = index;
+  if (index < 0 || index >= s_light_count) return;
+  strncpy(s_ctrl_id, s_lights[index].id, ID_LEN - 1);
+  s_ctrl_id[ID_LEN - 1] = '\0';
   s_temp_mode = 0;
   if (!s_ctrl_window) {
     s_ctrl_window = window_create();
     window_set_window_handlers(s_ctrl_window, (WindowHandlers){ .load = ctrl_load, .unload = ctrl_unload });
     window_set_click_config_provider(s_ctrl_window, click_config);
   }
-  window_stack_push(s_ctrl_window, true);  // load fires -> render() with the new s_index
+  window_stack_push(s_ctrl_window, true);  // load fires -> render() for the new s_ctrl_id
 }
 
 void control_window_deinit(void) {
