@@ -7,6 +7,8 @@ Cloud OpenAPI** itself, and credentials are entered on the Clay config page.
 
 Part of the [Sykerö Software](https://github.com/Sykero-Software) ecosystem.
 
+**[Install from the Pebble appstore →](https://apps.repebble.com/tuya-lights_dfc4441530f946c895d73257)**
+
 ## Why cloud (not local LAN)
 
 Tuya's official app exposes no API for third-party apps to drive it, so the app
@@ -71,3 +73,6 @@ RGB colour and scenes are out of scope for the initial version.
 ## Support
 
 Questions, feedback or bug reports: <pebble.tuyalights@sykero.fi>
+
+Browse all Sykerö Software apps on the Pebble appstore:
+<https://apps.repebble.com/apps/dev/syker-software_9f6c9c6e9ce88af6a0db953e>
