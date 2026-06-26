@@ -101,12 +101,13 @@ int find_light_by_id(const char *id) {
 }
 
 // --- AppMessage send ---
-void send_command(int index, int action) {
+void send_command(int index, int action, int desired_on) {
   if (index < 0 || index >= s_light_count) return;
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) != APP_MSG_OK) return;
   dict_write_cstring(it, MESSAGE_KEY_CmdLightId, s_lights[index].id);   // stable id, not position
   dict_write_int32(it, MESSAGE_KEY_CmdAction, action);
+  if (desired_on >= 0) dict_write_int32(it, MESSAGE_KEY_CmdDesiredOn, desired_on);
   app_message_outbox_send();
 }
 
@@ -140,8 +141,9 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (!s_lights[row].online) return;   // offline = disabled, silent no-op
   if (!s_cfg_quick_toggle) { control_window_push(row); return; }   // classic behaviour
   Light prev = s_lights[row];             // confirmed state, restored if the command is unconfirmed
-  s_lights[row].on = !s_lights[row].on;   // optimistic; PKJS pushes authoritative state back
-  send_command(row, ACT_TOGGLE);
+  int desired_on = s_lights[row].on ? 0 : 1;   // from the state the watch DISPLAYED
+  s_lights[row].on = desired_on;          // optimistic; PKJS pushes authoritative state back
+  send_command(row, ACT_TOGGLE, desired_on);
   mark_used(s_lights[row].name);
   rebuild_order();
   menu_layer_reload_data(s_menu);

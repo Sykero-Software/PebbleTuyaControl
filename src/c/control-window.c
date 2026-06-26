@@ -35,8 +35,8 @@ static void up_click(ClickRecognizerRef r, void *ctx) {
   int i = ctrl_index();
   if (i < 0) return;
   Light *l = &s_lights[i];
-  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp + STEP); send_command(i, ACT_TEMP_UP); }
-  else { l->bright = clamp_pct(l->bright + STEP); send_command(i, ACT_BRIGHT_UP); }
+  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp + STEP); send_command(i, ACT_TEMP_UP, -1); }
+  else { l->bright = clamp_pct(l->bright + STEP); send_command(i, ACT_BRIGHT_UP, -1); }
   render();
   tuya_mark_used(i);
 }
@@ -44,8 +44,8 @@ static void down_click(ClickRecognizerRef r, void *ctx) {
   int i = ctrl_index();
   if (i < 0) return;
   Light *l = &s_lights[i];
-  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp - STEP); send_command(i, ACT_TEMP_DOWN); }
-  else { l->bright = clamp_pct(l->bright - STEP); send_command(i, ACT_BRIGHT_DOWN); }
+  if (s_temp_mode) { if (l->temp < 0) return; l->temp = clamp_pct(l->temp - STEP); send_command(i, ACT_TEMP_DOWN, -1); }
+  else { l->bright = clamp_pct(l->bright - STEP); send_command(i, ACT_BRIGHT_DOWN, -1); }
   render();
   tuya_mark_used(i);
 }
@@ -54,8 +54,9 @@ static void select_click(ClickRecognizerRef r, void *ctx) {
   if (i < 0) return;
   if (!s_lights[i].online) return;   // offline = disabled, silent no-op
   Light prev = s_lights[i];          // confirmed state, restored if the command is unconfirmed
-  s_lights[i].on = !s_lights[i].on;
-  send_command(i, ACT_TOGGLE);
+  int desired_on = s_lights[i].on ? 0 : 1;
+  s_lights[i].on = desired_on;
+  send_command(i, ACT_TOGGLE, desired_on);
   render();
   tuya_mark_used(i);
   if (s_cfg_auto_close) begin_auto_close(i, &prev);   // declared in tuya.h

@@ -30,7 +30,9 @@ extern bool s_cfg_auto_close;
 
 // pebble-tuya.c
 int  find_light_by_id(const char *id);   // -> s_lights[] index for a stable id, or -1
-void send_command(int index, int action);
+// desired_on: 0/1 = absolute target for a TOGGLE (derived from the displayed state);
+// -1 = omit (brightness/temp steps stay relative).
+void send_command(int index, int action, int desired_on);
 // Show "Switching…" and close once the phone confirms the command (CmdDone). `prev`
 // is the light's pre-command state: if no confirmation arrives, the change is reverted
 // to it and an error shown (the app stays open) rather than exiting as if it succeeded.
