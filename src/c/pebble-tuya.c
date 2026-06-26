@@ -33,6 +33,15 @@ static char s_mru[MAX_LIGHTS][NAME_LEN];
 static int  s_mru_count = 0;
 static int  s_order[MAX_LIGHTS];
 
+// Load-batch reconciliation (D3): each full push from PKJS is one epoch. Rows seen in
+// the current epoch survive; rows absent (device removed) are pruned when the batch
+// completes (received == ListCount). Parallel array, NOT a Light field — keeps
+// sizeof(Light) and the persist format unchanged.
+static int s_load_epoch = 0;
+static int s_seen_epoch[MAX_LIGHTS];
+static int s_received_in_epoch = 0;
+static int s_expected_count = 0;
+
 static int mru_rank(const char *name) {
   for (int i = 0; i < s_mru_count; i++) {
     if (strncmp(s_mru[i], name, NAME_LEN) == 0) return i;
@@ -78,6 +87,8 @@ static void rebuild_order(void) {
 static Window *s_list_window;
 static MenuLayer *s_menu;
 static StatusBarLayer *s_status;
+static Layer *s_sync_layer = NULL;   // small "syncing" dot over the status strip
+static bool  s_syncing = false;      // set from the phone's Syncing key
 
 // --- Auto-close (close the app once a toggle's cloud command is confirmed) ---
 static char s_close_pending_id[ID_LEN] = "";   // "" = no close pending; matched against CmdDone
@@ -101,12 +112,13 @@ int find_light_by_id(const char *id) {
 }
 
 // --- AppMessage send ---
-void send_command(int index, int action) {
+void send_command(int index, int action, int desired_on) {
   if (index < 0 || index >= s_light_count) return;
   DictionaryIterator *it;
   if (app_message_outbox_begin(&it) != APP_MSG_OK) return;
   dict_write_cstring(it, MESSAGE_KEY_CmdLightId, s_lights[index].id);   // stable id, not position
   dict_write_int32(it, MESSAGE_KEY_CmdAction, action);
+  if (desired_on >= 0) dict_write_int32(it, MESSAGE_KEY_CmdDesiredOn, desired_on);
   app_message_outbox_send();
 }
 
@@ -125,6 +137,12 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
   int li = (ci->row < s_light_count) ? s_order[ci->row] : ci->row;
   Light *l = &s_lights[li];
   static char sub[24];
+  // Reset the per-cell text color first: the offline branch below sets gray, and
+  // MenuLayer does not re-establish the colour per draw — so without this the gray
+  // could bleed into a later cell now that the frozen order can place an offline row
+  // above online ones (online→offline updates in place without a re-sort). Use the
+  // highlight-aware default so the selected row's text stays correct.
+  graphics_context_set_text_color(g, menu_cell_layer_is_highlighted(cell) ? GColorWhite : GColorBlack);
   if (!l->online) {
     snprintf(sub, sizeof(sub), "Offline");
     graphics_context_set_text_color(g, GColorLightGray);   // disabled look
@@ -140,8 +158,9 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (!s_lights[row].online) return;   // offline = disabled, silent no-op
   if (!s_cfg_quick_toggle) { control_window_push(row); return; }   // classic behaviour
   Light prev = s_lights[row];             // confirmed state, restored if the command is unconfirmed
-  s_lights[row].on = !s_lights[row].on;   // optimistic; PKJS pushes authoritative state back
-  send_command(row, ACT_TOGGLE);
+  int desired_on = s_lights[row].on ? 0 : 1;   // from the state the watch DISPLAYED
+  s_lights[row].on = desired_on;          // optimistic; PKJS pushes authoritative state back
+  send_command(row, ACT_TOGGLE, desired_on);
   mark_used(s_lights[row].name);
   rebuild_order();
   menu_layer_reload_data(s_menu);
@@ -156,6 +175,13 @@ static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
   control_window_push(row);
 }
 
+static void sync_update_proc(Layer *layer, GContext *ctx) {
+  if (!s_syncing) return;
+  GRect b = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, GColorDarkGray);
+  graphics_fill_circle(ctx, GPoint(b.size.w / 2, b.size.h / 2), 4);
+}
+
 static void list_load(Window *w) {
   Layer *root = window_get_root_layer(w);
   GRect b = layer_get_bounds(root);
@@ -167,11 +193,15 @@ static void list_load(Window *w) {
   menu_layer_set_click_config_onto_window(s_menu, w);
   layer_add_child(root, menu_layer_get_layer(s_menu));
   layer_add_child(root, status_bar_layer_get_layer(s_status));
+  s_sync_layer = layer_create(GRect(b.size.w - 16, 2, 12, 12));
+  layer_set_update_proc(s_sync_layer, sync_update_proc);
+  layer_add_child(root, s_sync_layer);
 }
 
 static void list_unload(Window *w) {
   menu_layer_destroy(s_menu);
   status_bar_layer_destroy(s_status);
+  if (s_sync_layer) { layer_destroy(s_sync_layer); s_sync_layer = NULL; }
 }
 
 void list_window_reload(void) {
@@ -183,6 +213,27 @@ void tuya_mark_used(int light_index) {
   mark_used(s_lights[light_index].name);
   rebuild_order();
   list_window_reload();
+}
+
+// Drop lights not seen in the current load epoch (removed from the account), preserving
+// the DISPLAY order of survivors. Buffers are static: the event loop is single-threaded,
+// and big stack locals overflow the ~2 KB Pebble app stack (CLAUDE.md).
+static void prune_stale_lights(void) {
+  static Light tmp[MAX_LIGHTS];
+  static int seen_tmp[MAX_LIGHTS];
+  int w = 0;
+  for (int d = 0; d < s_light_count; d++) {       // iterate in DISPLAY order
+    int si = s_order[d];
+    if (si >= 0 && si < s_light_count && s_seen_epoch[si] == s_load_epoch) {
+      tmp[w] = s_lights[si];
+      seen_tmp[w] = s_seen_epoch[si];
+      w++;
+    }
+  }
+  if (w == s_light_count) return;                 // nothing removed
+  for (int i = 0; i < w; i++) { s_lights[i] = tmp[i]; s_seen_epoch[i] = seen_tmp[i]; }
+  s_light_count = w;
+  for (int i = 0; i < w; i++) s_order[i] = i;      // storage now == display order
 }
 
 // --- AppMessage receive ---
@@ -201,37 +252,48 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     s_state = t->value->int32 ? ST_READY : ST_NOCONFIG;
     s_error[0] = '\0';
   }
+  Tuple *sy = dict_find(it, MESSAGE_KEY_Syncing);
+  if (sy) { s_syncing = sy->value->int32 ? true : false; if (s_sync_layer) layer_mark_dirty(s_sync_layer); }
+  if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
+    s_expected_count = t->value->int32;
+    if (s_expected_count > MAX_LIGHTS) s_expected_count = MAX_LIGHTS;
+    s_load_epoch++;                 // a new full push begins
+    s_received_in_epoch = 0;
+  }
   Tuple *qt = dict_find(it, MESSAGE_KEY_CfgQuickToggle);
   if (qt) { s_cfg_quick_toggle = qt->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_QUICK_TOGGLE, s_cfg_quick_toggle); }
   Tuple *ac = dict_find(it, MESSAGE_KEY_CfgAutoClose);
   if (ac) { s_cfg_auto_close = ac->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_AUTO_CLOSE, s_cfg_auto_close); }
   Tuple *mru = dict_find(it, MESSAGE_KEY_CfgMru);
   if (mru) { s_cfg_mru = mru->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_MRU_ENABLED, s_cfg_mru); }
-  if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
-    s_light_count = t->value->int32;
-    if (s_light_count > MAX_LIGHTS) s_light_count = MAX_LIGHTS;
-  }
-  Tuple *idx_t = dict_find(it, MESSAGE_KEY_RowIndex);
-  if (idx_t) {
-    int i = idx_t->value->int32;
-    if (i >= 0 && i < MAX_LIGHTS) {
-      Tuple *id = dict_find(it, MESSAGE_KEY_RowId);
-      if (id) { strncpy(s_lights[i].id, id->value->cstring, ID_LEN - 1); s_lights[i].id[ID_LEN - 1] = '\0'; }
+  Tuple *rid_t = dict_find(it, MESSAGE_KEY_RowId);
+  const char *rid = rid_t ? rid_t->value->cstring : NULL;
+  if (rid && rid[0]) {
+    int i = find_light_by_id(rid);                       // update existing row IN PLACE
+    if (i < 0 && s_light_count < MAX_LIGHTS) {            // or append a genuinely new light
+      i = s_light_count++;
+      strncpy(s_lights[i].id, rid, ID_LEN - 1); s_lights[i].id[ID_LEN - 1] = '\0';
+      s_order[i] = i;                                     // new row at the bottom; existing rows don't reflow
+    }
+    if (i >= 0) {
       Tuple *n = dict_find(it, MESSAGE_KEY_RowName);
       if (n) { strncpy(s_lights[i].name, n->value->cstring, NAME_LEN - 1); s_lights[i].name[NAME_LEN - 1] = '\0'; }
       Tuple *on = dict_find(it, MESSAGE_KEY_RowOn);     if (on) s_lights[i].on = on->value->int32;
       Tuple *br = dict_find(it, MESSAGE_KEY_RowBright); if (br) s_lights[i].bright = br->value->int32;
       Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);   if (tp) s_lights[i].temp = tp->value->int32;
       Tuple *ol = dict_find(it, MESSAGE_KEY_RowOnline); if (ol) s_lights[i].online = ol->value->int32;
-      if (i + 1 > s_light_count) s_light_count = i + 1;
+      s_seen_epoch[i] = s_load_epoch;
+      s_received_in_epoch++;
     }
   }
-  rebuild_order();
-  list_window_reload();
-  if (idx_t) {
-    Tuple *rid = dict_find(it, MESSAGE_KEY_RowId);
-    if (rid) control_window_refresh(rid->value->cstring);
+  // D2: display order is FROZEN during loads — NO rebuild_order() here. Values update
+  // in place (D1); order is recomputed only at launch and after a user action.
+  if (s_expected_count > 0 && s_received_in_epoch >= s_expected_count) {
+    prune_stale_lights();
+    s_expected_count = 0;           // batch consumed; later stray rows (e.g. CmdDone) don't re-prune
   }
+  list_window_reload();
+  if (rid) control_window_refresh(rid);
   Tuple *cd = dict_find(it, MESSAGE_KEY_CmdDone);
   if (cd && s_close_pending_id[0] && strcmp(cd->value->cstring, s_close_pending_id) == 0) {
     do_close();
