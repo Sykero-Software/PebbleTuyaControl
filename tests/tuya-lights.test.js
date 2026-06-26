@@ -218,3 +218,41 @@ describe('mapDevicesToSlots', () => {
     expect(slots.map(function (s) { return s.online; })).toEqual([1, 1, 0, 0]);
   });
 });
+
+describe('actionToCommands with absolute desiredOn (from the watch-displayed state)', () => {
+  const caps = { switchCode: 'switch_led', brightCode: 'bright_value_v2', brightMin: 10, brightMax: 1000,
+                 tempCode: 'temp_value_v2', tempMin: 0, tempMax: 1000 };
+  const ACT = L.ACTIONS;
+  test('desiredOn=1 forces switch ON even if cached state is on', () => {
+    expect(L.actionToCommands(ACT.TOGGLE, { on: 1, bright: 50, temp: 50 }, caps, 1))
+      .toEqual([{ code: 'switch_led', value: true }]);
+  });
+  test('desiredOn=0 forces switch OFF even if cached state is off', () => {
+    expect(L.actionToCommands(ACT.TOGGLE, { on: 0, bright: 50, temp: 50 }, caps, 0))
+      .toEqual([{ code: 'switch_led', value: false }]);
+  });
+  test('absent desiredOn falls back to relative !state.on', () => {
+    expect(L.actionToCommands(ACT.TOGGLE, { on: 1, bright: 50, temp: 50 }, caps))
+      .toEqual([{ code: 'switch_led', value: false }]);
+    expect(L.actionToCommands(ACT.TOGGLE, { on: 0, bright: 50, temp: 50 }, caps))
+      .toEqual([{ code: 'switch_led', value: true }]);
+  });
+});
+
+describe('applyActionToState with absolute desiredOn', () => {
+  const caps = { switchCode: 'switch_led', brightCode: 'bright_value_v2', brightMin: 10, brightMax: 1000,
+                 tempCode: 'temp_value_v2', tempMin: 0, tempMax: 1000 };
+  const ACT = L.ACTIONS;
+  test('desiredOn=1 sets on regardless of prior state', () => {
+    expect(L.applyActionToState(ACT.TOGGLE, { on: 1, bright: 50, temp: 50 }, caps, 1))
+      .toEqual({ on: 1, bright: 50, temp: 50 });
+  });
+  test('desiredOn=0 clears on regardless of prior state', () => {
+    expect(L.applyActionToState(ACT.TOGGLE, { on: 0, bright: 50, temp: 50 }, caps, 0))
+      .toEqual({ on: 0, bright: 50, temp: 50 });
+  });
+  test('absent desiredOn keeps relative flip', () => {
+    expect(L.applyActionToState(ACT.TOGGLE, { on: 1, bright: 50, temp: 50 }, caps))
+      .toEqual({ on: 0, bright: 50, temp: 50 });
+  });
+});

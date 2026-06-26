@@ -59,10 +59,11 @@ function parseStatus(status, caps) {
   return { on: on, bright: bright, temp: temp };
 }
 
-function actionToCommands(action, state, caps) {
+function actionToCommands(action, state, caps, desiredOn) {
   if (action === ACTIONS.TOGGLE) {
     if (!caps.switchCode) return [];
-    return [{ code: caps.switchCode, value: !state.on }];
+    var on = (typeof desiredOn === 'number') ? !!desiredOn : !state.on;
+    return [{ code: caps.switchCode, value: on }];
   }
   if (action === ACTIONS.BRIGHT_UP || action === ACTIONS.BRIGHT_DOWN) {
     if (!caps.brightCode) return [];
@@ -83,9 +84,9 @@ function clampPct(v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
 // re-reading /status — the Tuya cloud lags the device's report, so an immediate
 // re-fetch returns the pre-command value and would clobber the change. The real
 // status is re-read on app open / REFRESH instead.
-function applyActionToState(action, state, caps) {
+function applyActionToState(action, state, caps, desiredOn) {
   var ns = { on: state.on, bright: state.bright, temp: state.temp };
-  if (action === ACTIONS.TOGGLE) ns.on = state.on ? 0 : 1;
+  if (action === ACTIONS.TOGGLE) ns.on = (typeof desiredOn === 'number') ? (desiredOn ? 1 : 0) : (state.on ? 0 : 1);
   else if (action === ACTIONS.BRIGHT_UP) ns.bright = clampPct(state.bright + STEP);
   else if (action === ACTIONS.BRIGHT_DOWN) ns.bright = clampPct(state.bright - STEP);
   else if (action === ACTIONS.TEMP_UP && caps.tempCode) ns.temp = clampPct(state.temp + STEP);
