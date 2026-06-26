@@ -33,6 +33,15 @@ static char s_mru[MAX_LIGHTS][NAME_LEN];
 static int  s_mru_count = 0;
 static int  s_order[MAX_LIGHTS];
 
+// Load-batch reconciliation (D3): each full push from PKJS is one epoch. Rows seen in
+// the current epoch survive; rows absent (device removed) are pruned when the batch
+// completes (received == ListCount). Parallel array, NOT a Light field — keeps
+// sizeof(Light) and the persist format unchanged.
+static int s_load_epoch = 0;
+static int s_seen_epoch[MAX_LIGHTS];
+static int s_received_in_epoch = 0;
+static int s_expected_count = 0;
+
 static int mru_rank(const char *name) {
   for (int i = 0; i < s_mru_count; i++) {
     if (strncmp(s_mru[i], name, NAME_LEN) == 0) return i;
@@ -187,6 +196,27 @@ void tuya_mark_used(int light_index) {
   list_window_reload();
 }
 
+// Drop lights not seen in the current load epoch (removed from the account), preserving
+// the DISPLAY order of survivors. Buffers are static: the event loop is single-threaded,
+// and big stack locals overflow the ~2 KB Pebble app stack (CLAUDE.md).
+static void prune_stale_lights(void) {
+  static Light tmp[MAX_LIGHTS];
+  static int seen_tmp[MAX_LIGHTS];
+  int w = 0;
+  for (int d = 0; d < s_light_count; d++) {       // iterate in DISPLAY order
+    int si = s_order[d];
+    if (si >= 0 && si < s_light_count && s_seen_epoch[si] == s_load_epoch) {
+      tmp[w] = s_lights[si];
+      seen_tmp[w] = s_seen_epoch[si];
+      w++;
+    }
+  }
+  if (w == s_light_count) return;                 // nothing removed
+  for (int i = 0; i < w; i++) { s_lights[i] = tmp[i]; s_seen_epoch[i] = seen_tmp[i]; }
+  s_light_count = w;
+  for (int i = 0; i < w; i++) s_order[i] = i;      // storage now == display order
+}
+
 // --- AppMessage receive ---
 static void inbox_received(DictionaryIterator *it, void *ctx) {
 #ifdef SCREENSHOT_FIXTURES
@@ -203,6 +233,12 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     s_state = t->value->int32 ? ST_READY : ST_NOCONFIG;
     s_error[0] = '\0';
   }
+  if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
+    s_expected_count = t->value->int32;
+    if (s_expected_count > MAX_LIGHTS) s_expected_count = MAX_LIGHTS;
+    s_load_epoch++;                 // a new full push begins
+    s_received_in_epoch = 0;
+  }
   Tuple *qt = dict_find(it, MESSAGE_KEY_CfgQuickToggle);
   if (qt) { s_cfg_quick_toggle = qt->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_QUICK_TOGGLE, s_cfg_quick_toggle); }
   Tuple *ac = dict_find(it, MESSAGE_KEY_CfgAutoClose);
@@ -210,8 +246,8 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   Tuple *mru = dict_find(it, MESSAGE_KEY_CfgMru);
   if (mru) { s_cfg_mru = mru->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_MRU_ENABLED, s_cfg_mru); }
   Tuple *rid_t = dict_find(it, MESSAGE_KEY_RowId);
-  if (rid_t && rid_t->value->cstring[0]) {
-    const char *rid = rid_t->value->cstring;
+  const char *rid = rid_t ? rid_t->value->cstring : NULL;
+  if (rid && rid[0]) {
     int i = find_light_by_id(rid);                       // update existing row IN PLACE
     if (i < 0 && s_light_count < MAX_LIGHTS) {            // or append a genuinely new light
       i = s_light_count++;
@@ -225,12 +261,18 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
       Tuple *br = dict_find(it, MESSAGE_KEY_RowBright); if (br) s_lights[i].bright = br->value->int32;
       Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);   if (tp) s_lights[i].temp = tp->value->int32;
       Tuple *ol = dict_find(it, MESSAGE_KEY_RowOnline); if (ol) s_lights[i].online = ol->value->int32;
+      s_seen_epoch[i] = s_load_epoch;
+      s_received_in_epoch++;
     }
   }
   // D2: display order is FROZEN during loads — NO rebuild_order() here. Values update
   // in place (D1); order is recomputed only at launch and after a user action.
+  if (s_expected_count > 0 && s_received_in_epoch >= s_expected_count) {
+    prune_stale_lights();
+    s_expected_count = 0;           // batch consumed; later stray rows (e.g. CmdDone) don't re-prune
+  }
   list_window_reload();
-  if (rid_t) control_window_refresh(rid_t->value->cstring);
+  if (rid) control_window_refresh(rid);
   Tuple *cd = dict_find(it, MESSAGE_KEY_CmdDone);
   if (cd && s_close_pending_id[0] && strcmp(cd->value->cstring, s_close_pending_id) == 0) {
     do_close();
