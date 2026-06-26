@@ -87,6 +87,8 @@ static void rebuild_order(void) {
 static Window *s_list_window;
 static MenuLayer *s_menu;
 static StatusBarLayer *s_status;
+static Layer *s_sync_layer = NULL;   // small "syncing" dot over the status strip
+static bool  s_syncing = false;      // set from the phone's Syncing key
 
 // --- Auto-close (close the app once a toggle's cloud command is confirmed) ---
 static char s_close_pending_id[ID_LEN] = "";   // "" = no close pending; matched against CmdDone
@@ -167,6 +169,13 @@ static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
   control_window_push(row);
 }
 
+static void sync_update_proc(Layer *layer, GContext *ctx) {
+  if (!s_syncing) return;
+  GRect b = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, GColorDarkGray);
+  graphics_fill_circle(ctx, GPoint(b.size.w / 2, b.size.h / 2), 4);
+}
+
 static void list_load(Window *w) {
   Layer *root = window_get_root_layer(w);
   GRect b = layer_get_bounds(root);
@@ -178,11 +187,15 @@ static void list_load(Window *w) {
   menu_layer_set_click_config_onto_window(s_menu, w);
   layer_add_child(root, menu_layer_get_layer(s_menu));
   layer_add_child(root, status_bar_layer_get_layer(s_status));
+  s_sync_layer = layer_create(GRect(b.size.w - 16, 2, 12, 12));
+  layer_set_update_proc(s_sync_layer, sync_update_proc);
+  layer_add_child(root, s_sync_layer);
 }
 
 static void list_unload(Window *w) {
   menu_layer_destroy(s_menu);
   status_bar_layer_destroy(s_status);
+  if (s_sync_layer) { layer_destroy(s_sync_layer); s_sync_layer = NULL; }
 }
 
 void list_window_reload(void) {
@@ -233,6 +246,8 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     s_state = t->value->int32 ? ST_READY : ST_NOCONFIG;
     s_error[0] = '\0';
   }
+  Tuple *sy = dict_find(it, MESSAGE_KEY_Syncing);
+  if (sy) { s_syncing = sy->value->int32 ? true : false; if (s_sync_layer) layer_mark_dirty(s_sync_layer); }
   if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
     s_expected_count = t->value->int32;
     if (s_expected_count > MAX_LIGHTS) s_expected_count = MAX_LIGHTS;
