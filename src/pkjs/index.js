@@ -23,7 +23,7 @@ function drainPending() {
   if (!_pendingCmds.length) return;
   var pend = _pendingCmds;
   _pendingCmds = [];
-  pend.forEach(function (c) { handleCommand(c.id, c.action); });
+  pend.forEach(function (c) { handleCommand(c.id, c.action, c.desiredOn); });
 }
 
 function sendConfig() {
@@ -148,6 +148,7 @@ function pushRows() {
 function loadAll() {
   var c = getClient();
   if (!c) { sendMsg({ Ready: 0 }); return; }
+  sendMsg({ Syncing: 1 });
 
   c.request('GET', '/v1.0/iot-01/associated-users/devices').then(function (resp) {
     var devices = (resp.result && resp.result.devices) || [];
@@ -174,27 +175,28 @@ function loadAll() {
       saveModel();   // refresh the cross-launch cache with the authoritative model
       pushRows();
       drainPending();
+      sendMsg({ Syncing: 0 });
     });
-  }).catch(function (e) { sendError(e.message || 'Tuya error'); });
+  }).catch(function (e) { sendMsg({ Syncing: 0 }); sendError(e.message || 'Tuya error'); });
 }
 
-function handleCommand(id, action) {
+function handleCommand(id, action, desiredOn) {
   if (action === L.ACTIONS.REFRESH) { loadAll(); return; }
   if (!L.commandDeliverable(id, slots, capsById, stateById)) {
-    _pendingCmds.push({ id: id, action: action });   // replayed after loadAll()
+    _pendingCmds.push({ id: id, action: action, desiredOn: desiredOn });   // replayed after loadAll()
     return;
   }
   var slot = L.resolveSlot(id, slots);   // by stable device id, never by list position
   var caps = capsById[slot.id];
   var state = stateById[slot.id];
-  var cmds = L.actionToCommands(action, state, caps);
+  var cmds = L.actionToCommands(action, state, caps, desiredOn);
   if (!cmds.length) return;
   var c = getClient();
   if (!c) { sendMsg({ Ready: 0 }); return; }
   c.request('POST', '/v1.0/iot-03/devices/' + slot.id + '/commands', { commands: cmds })
     .then(function () {
       // Trust the ACKed command — do NOT re-read /status (the cloud lags the device).
-      stateById[slot.id] = L.applyActionToState(action, state, caps);
+      stateById[slot.id] = L.applyActionToState(action, state, caps, desiredOn);
       saveModel();   // persist the confirmed state so a relaunch starts from truth
       var msg = rowMsg(slot, stateById[slot.id]);
       msg.CmdDone = slot.id;   // confirmation signal for the watch's auto-close (by id)
@@ -240,6 +242,6 @@ Pebble.addEventListener('webviewclosed', function (e) {
 Pebble.addEventListener('appmessage', function (e) {
   var p = e.payload;
   if (p.CmdAction !== undefined && p.CmdLightId !== undefined) {
-    handleCommand(p.CmdLightId, p.CmdAction);
+    handleCommand(p.CmdLightId, p.CmdAction, p.CmdDesiredOn);
   }
 });
