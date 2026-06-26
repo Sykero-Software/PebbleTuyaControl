@@ -209,31 +209,28 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   if (ac) { s_cfg_auto_close = ac->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_AUTO_CLOSE, s_cfg_auto_close); }
   Tuple *mru = dict_find(it, MESSAGE_KEY_CfgMru);
   if (mru) { s_cfg_mru = mru->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_MRU_ENABLED, s_cfg_mru); }
-  if ((t = dict_find(it, MESSAGE_KEY_ListCount))) {
-    s_light_count = t->value->int32;
-    if (s_light_count > MAX_LIGHTS) s_light_count = MAX_LIGHTS;
-  }
-  Tuple *idx_t = dict_find(it, MESSAGE_KEY_RowIndex);
-  if (idx_t) {
-    int i = idx_t->value->int32;
-    if (i >= 0 && i < MAX_LIGHTS) {
-      Tuple *id = dict_find(it, MESSAGE_KEY_RowId);
-      if (id) { strncpy(s_lights[i].id, id->value->cstring, ID_LEN - 1); s_lights[i].id[ID_LEN - 1] = '\0'; }
+  Tuple *rid_t = dict_find(it, MESSAGE_KEY_RowId);
+  if (rid_t && rid_t->value->cstring[0]) {
+    const char *rid = rid_t->value->cstring;
+    int i = find_light_by_id(rid);                       // update existing row IN PLACE
+    if (i < 0 && s_light_count < MAX_LIGHTS) {            // or append a genuinely new light
+      i = s_light_count++;
+      strncpy(s_lights[i].id, rid, ID_LEN - 1); s_lights[i].id[ID_LEN - 1] = '\0';
+      s_order[i] = i;                                     // new row at the bottom; existing rows don't reflow
+    }
+    if (i >= 0) {
       Tuple *n = dict_find(it, MESSAGE_KEY_RowName);
       if (n) { strncpy(s_lights[i].name, n->value->cstring, NAME_LEN - 1); s_lights[i].name[NAME_LEN - 1] = '\0'; }
       Tuple *on = dict_find(it, MESSAGE_KEY_RowOn);     if (on) s_lights[i].on = on->value->int32;
       Tuple *br = dict_find(it, MESSAGE_KEY_RowBright); if (br) s_lights[i].bright = br->value->int32;
       Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);   if (tp) s_lights[i].temp = tp->value->int32;
       Tuple *ol = dict_find(it, MESSAGE_KEY_RowOnline); if (ol) s_lights[i].online = ol->value->int32;
-      if (i + 1 > s_light_count) s_light_count = i + 1;
     }
   }
-  rebuild_order();
+  // D2: display order is FROZEN during loads — NO rebuild_order() here. Values update
+  // in place (D1); order is recomputed only at launch and after a user action.
   list_window_reload();
-  if (idx_t) {
-    Tuple *rid = dict_find(it, MESSAGE_KEY_RowId);
-    if (rid) control_window_refresh(rid->value->cstring);
-  }
+  if (rid_t) control_window_refresh(rid_t->value->cstring);
   Tuple *cd = dict_find(it, MESSAGE_KEY_CmdDone);
   if (cd && s_close_pending_id[0] && strcmp(cd->value->cstring, s_close_pending_id) == 0) {
     do_close();
