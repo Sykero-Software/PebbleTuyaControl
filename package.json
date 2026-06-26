@@ -19,7 +19,7 @@
     "uuid": "f1d4c7a0-3b2e-4c9a-9e2f-7a6b5c4d3e21",
     "sdkVersion": "3",
     "enableMultiJS": true,
-    "targetPlatforms": ["basalt", "chalk", "diorite", "emery", "flint", "gabbro"],
+    "targetPlatforms": ["basalt", "diorite", "emery", "flint"],
     "watchapp": { "watchface": false },
     "messageKeys": [
       "ListCount", "RowIndex", "RowName", "RowOn", "RowBright", "RowTemp",
