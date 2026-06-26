@@ -137,6 +137,12 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
   int li = (ci->row < s_light_count) ? s_order[ci->row] : ci->row;
   Light *l = &s_lights[li];
   static char sub[24];
+  // Reset the per-cell text color first: the offline branch below sets gray, and
+  // MenuLayer does not re-establish the colour per draw — so without this the gray
+  // could bleed into a later cell now that the frozen order can place an offline row
+  // above online ones (online→offline updates in place without a re-sort). Use the
+  // highlight-aware default so the selected row's text stays correct.
+  graphics_context_set_text_color(g, menu_cell_layer_is_highlighted(cell) ? GColorWhite : GColorBlack);
   if (!l->online) {
     snprintf(sub, sizeof(sub), "Offline");
     graphics_context_set_text_color(g, GColorLightGray);   // disabled look
