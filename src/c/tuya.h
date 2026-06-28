@@ -39,6 +39,14 @@ void send_command(int index, int action, int desired_on);
 void begin_auto_close(int index, const Light *prev);
 void tuya_mark_used(int light_index);  // record recency for a light + reorder the list
 
+// Idle auto-exit (return to watchface after inactivity). Defined in pebble-tuya.c;
+// the control window arms it on .appear, cancels on .disappear, and resets it on
+// every button press.
+void idle_reset(void);
+void idle_cancel(void);
+void idle_appear(Window *w);
+void idle_disappear(Window *w);
+
 // control-window.c
 void control_window_push(int index);
 void control_window_refresh(const char *id);   // re-render iff the open light matches this id

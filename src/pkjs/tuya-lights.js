@@ -116,7 +116,8 @@ function cfgToInts(settings) {
   var qt = (s.CfgQuickToggle === undefined) ? 1 : (s.CfgQuickToggle ? 1 : 0);
   var ac = s.CfgAutoClose ? 1 : 0;
   var mru = (s.CfgMru === undefined) ? 1 : (s.CfgMru ? 1 : 0);
-  return { CfgQuickToggle: qt, CfgAutoClose: ac, CfgMru: mru };
+  var idle = (s.CfgIdleExitSec === undefined) ? 15 : (parseInt(s.CfgIdleExitSec, 10) || 0);
+  return { CfgQuickToggle: qt, CfgAutoClose: ac, CfgMru: mru, CfgIdleExitSec: idle };
 }
 
 // Resolve a slot by its STABLE Tuya device id, never by list position. The watch

@@ -112,15 +112,20 @@ describe('applyActionToState', () => {
 });
 
 describe('cfgToInts', () => {
-  test('defaults: quick-toggle on, auto-close off, mru on when keys absent', () => {
-    expect(L.cfgToInts({})).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1 });
-    expect(L.cfgToInts(undefined)).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1 });
+  test('defaults: quick-toggle on, auto-close off, mru on, idle-exit 15 when keys absent', () => {
+    expect(L.cfgToInts({})).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1, CfgIdleExitSec: 15 });
+    expect(L.cfgToInts(undefined)).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1, CfgIdleExitSec: 15 });
   });
   test('maps booleans to ints', () => {
     expect(L.cfgToInts({ CfgQuickToggle: false, CfgAutoClose: true, CfgMru: false }))
-      .toEqual({ CfgQuickToggle: 0, CfgAutoClose: 1, CfgMru: 0 });
+      .toEqual({ CfgQuickToggle: 0, CfgAutoClose: 1, CfgMru: 0, CfgIdleExitSec: 15 });
     expect(L.cfgToInts({ CfgQuickToggle: true, CfgAutoClose: false, CfgMru: true }))
-      .toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1 });
+      .toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1, CfgIdleExitSec: 15 });
+  });
+  test('idle-exit: select string parses to int; "0" (Off) round-trips to 0', () => {
+    expect(L.cfgToInts({ CfgIdleExitSec: '30' }).CfgIdleExitSec).toBe(30);
+    expect(L.cfgToInts({ CfgIdleExitSec: '0' }).CfgIdleExitSec).toBe(0);
+    expect(L.cfgToInts({ CfgIdleExitSec: 60 }).CfgIdleExitSec).toBe(60);
   });
 });
 

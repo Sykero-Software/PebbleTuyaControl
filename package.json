@@ -1,7 +1,7 @@
 {
   "name": "pebble-tuya-control",
   "author": "Sykerö Software",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "keywords": ["pebble-app"],
   "dependencies": {
@@ -26,7 +26,7 @@
       "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready", "RowOnline",
       "CfgQuickToggle", "CfgAutoClose", "CmdDone", "CfgMru",
       "RowId", "CmdLightId",
-      "CmdDesiredOn", "Syncing"
+      "CmdDesiredOn", "Syncing", "CfgIdleExitSec"
     ],
     "resources": {
       "media": [

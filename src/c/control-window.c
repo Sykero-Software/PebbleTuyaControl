@@ -32,6 +32,7 @@ static void render(void) {
 // command. PKJS pushes the authoritative state back on completion (and reverts to
 // the last known state if the command fails), so the watch self-corrects.
 static void up_click(ClickRecognizerRef r, void *ctx) {
+  idle_reset();
   int i = ctrl_index();
   if (i < 0) return;
   Light *l = &s_lights[i];
@@ -41,6 +42,7 @@ static void up_click(ClickRecognizerRef r, void *ctx) {
   tuya_mark_used(i);
 }
 static void down_click(ClickRecognizerRef r, void *ctx) {
+  idle_reset();
   int i = ctrl_index();
   if (i < 0) return;
   Light *l = &s_lights[i];
@@ -50,6 +52,7 @@ static void down_click(ClickRecognizerRef r, void *ctx) {
   tuya_mark_used(i);
 }
 static void select_click(ClickRecognizerRef r, void *ctx) {
+  idle_reset();
   int i = ctrl_index();
   if (i < 0) return;
   if (!s_lights[i].online) return;   // offline = disabled, silent no-op
@@ -62,6 +65,7 @@ static void select_click(ClickRecognizerRef r, void *ctx) {
   if (s_cfg_auto_close) begin_auto_close(i, &prev);   // declared in tuya.h
 }
 static void select_long(ClickRecognizerRef r, void *ctx) {
+  idle_reset();
   int i = ctrl_index();
   if (i >= 0 && s_lights[i].temp >= 0) { s_temp_mode = !s_temp_mode; render(); }
 }
@@ -110,7 +114,8 @@ void control_window_push(int index) {
   s_temp_mode = 0;
   if (!s_ctrl_window) {
     s_ctrl_window = window_create();
-    window_set_window_handlers(s_ctrl_window, (WindowHandlers){ .load = ctrl_load, .unload = ctrl_unload });
+    window_set_window_handlers(s_ctrl_window, (WindowHandlers){ .load = ctrl_load, .unload = ctrl_unload,
+      .appear = idle_appear, .disappear = idle_disappear });
     window_set_click_config_provider(s_ctrl_window, click_config);
   }
   window_stack_push(s_ctrl_window, true);  // load fires -> render() for the new s_ctrl_id

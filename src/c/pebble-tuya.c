@@ -20,6 +20,7 @@ static char s_error[64] = "";
 #define PERSIST_KEY_LIGHT_BASE   200   // + i
 #define PERSIST_KEY_MRU_ENABLED  103
 #define PERSIST_KEY_MRU_COUNT    104
+#define PERSIST_KEY_IDLE_EXIT    105   // idle auto-exit timeout, seconds (0 = off)
 #define PERSIST_KEY_MRU_BASE     300   // + i, one name string per entry
 
 bool s_cfg_quick_toggle = true;    // default ON  (matches Clay defaultValue)
@@ -83,6 +84,41 @@ static void rebuild_order(void) {
     s_order[j + 1] = cur;
   }
 }
+
+// ---- idle auto-exit: return to the watchface after s_idle_timeout_sec of no
+// button press in the list / control views. Armed in each window's .appear,
+// cancelled in .disappear (so the "Switching…" modal pauses it for free), reset
+// by every press. 0 = off; default 15s (overridden by persist + config). ----
+static int       s_idle_timeout_sec = 15;
+static AppTimer *s_idle_timer;
+
+void idle_cancel(void) {
+  if (s_idle_timer) { app_timer_cancel(s_idle_timer); s_idle_timer = NULL; }
+}
+static void idle_fire(void *ctx) {
+  s_idle_timer = NULL;
+  exit_reason_set(APP_EXIT_ACTION_PERFORMED_SUCCESSFULLY);
+  window_stack_pop_all(true);   // exits to the watchface; deinit() persists state
+}
+void idle_reset(void) {
+  if (s_idle_timeout_sec <= 0) { idle_cancel(); return; }
+  if (s_idle_timer) { app_timer_reschedule(s_idle_timer, s_idle_timeout_sec * 1000); }
+  else { s_idle_timer = app_timer_register(s_idle_timeout_sec * 1000, idle_fire, NULL); }
+}
+// Tolerant read: Clay's auto-send may deliver a `select` as a CString; a custom
+// handler sends an int. -1 = key absent (leave unchanged). NB: hand-rolled digit
+// parse — atoi/strtol are NOT exported by the Core firmware (hard fault).
+static int idle_read_seconds(Tuple *t) {
+  if (!t) { return -1; }
+  if (t->type == TUPLE_CSTRING) {
+    int v = 0; const char *p = t->value->cstring;
+    while (*p >= '0' && *p <= '9') { v = v * 10 + (*p++ - '0'); }
+    return v;
+  }
+  return (int)t->value->int32;
+}
+void idle_appear(Window *w) { idle_reset(); }
+void idle_disappear(Window *w) { idle_cancel(); }
 
 static Window *s_list_window;
 static MenuLayer *s_menu;
@@ -152,6 +188,7 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
 }
 
 static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
+  idle_reset();
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   if (ci->row >= s_light_count) return;
   int row = s_order[ci->row];
@@ -168,6 +205,7 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
 }
 
 static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
+  idle_reset();
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   if (ci->row >= s_light_count) return;
   int row = s_order[ci->row];
@@ -266,6 +304,9 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   if (ac) { s_cfg_auto_close = ac->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_AUTO_CLOSE, s_cfg_auto_close); }
   Tuple *mru = dict_find(it, MESSAGE_KEY_CfgMru);
   if (mru) { s_cfg_mru = mru->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_MRU_ENABLED, s_cfg_mru); }
+  Tuple *iet = dict_find(it, MESSAGE_KEY_CfgIdleExitSec);
+  int isec = idle_read_seconds(iet);
+  if (isec >= 0) { s_idle_timeout_sec = isec; persist_write_int(PERSIST_KEY_IDLE_EXIT, isec); idle_reset(); }
   Tuple *rid_t = dict_find(it, MESSAGE_KEY_RowId);
   const char *rid = rid_t ? rid_t->value->cstring : NULL;
   if (rid && rid[0]) {
@@ -311,6 +352,7 @@ static void load_persisted(void) {
   if (persist_exists(PERSIST_KEY_QUICK_TOGGLE)) s_cfg_quick_toggle = persist_read_bool(PERSIST_KEY_QUICK_TOGGLE);
   if (persist_exists(PERSIST_KEY_AUTO_CLOSE))   s_cfg_auto_close   = persist_read_bool(PERSIST_KEY_AUTO_CLOSE);
   if (persist_exists(PERSIST_KEY_MRU_ENABLED))  s_cfg_mru          = persist_read_bool(PERSIST_KEY_MRU_ENABLED);
+  if (persist_exists(PERSIST_KEY_IDLE_EXIT))    s_idle_timeout_sec = persist_read_int(PERSIST_KEY_IDLE_EXIT);
   if (persist_exists(PERSIST_KEY_MRU_COUNT)) {
     int m = persist_read_int(PERSIST_KEY_MRU_COUNT);
     if (m > MAX_LIGHTS) m = MAX_LIGHTS;
@@ -346,6 +388,7 @@ static void save_persisted(void) {
     persist_write_data(PERSIST_KEY_LIGHT_BASE + i, &s_lights[i], sizeof(Light));
   }
   persist_write_bool(PERSIST_KEY_MRU_ENABLED, s_cfg_mru);
+  persist_write_int(PERSIST_KEY_IDLE_EXIT, s_idle_timeout_sec);
   persist_write_int(PERSIST_KEY_MRU_COUNT, s_mru_count);
   for (int i = 0; i < s_mru_count && i < MAX_LIGHTS; i++) {
     persist_write_string(PERSIST_KEY_MRU_BASE + i, s_mru[i]);
@@ -439,12 +482,14 @@ static void init(void) {
   app_message_open(512, 256);
 
   s_list_window = window_create();
-  window_set_window_handlers(s_list_window, (WindowHandlers){ .load = list_load, .unload = list_unload });
+  window_set_window_handlers(s_list_window, (WindowHandlers){ .load = list_load, .unload = list_unload,
+    .appear = idle_appear, .disappear = idle_disappear });
   window_stack_push(s_list_window, true);
 }
 
 static void deinit(void) {
   save_persisted();
+  idle_cancel();
   if (s_close_timer) app_timer_cancel(s_close_timer);
   control_window_deinit();
   if (s_closing_window) window_destroy(s_closing_window);

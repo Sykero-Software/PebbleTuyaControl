@@ -54,6 +54,17 @@ module.exports = [
           { "label": "Every 30 s", "value": "30" },
           { "label": "Every 60 s", "value": "60" }
         ]
+      },
+      { "type": "select", "messageKey": "CfgIdleExitSec", "label": "Return to watchface when idle",
+        "description": "Close back to the watchface after this many seconds with no button press in the light list or control window. Off disables it.",
+        "defaultValue": "15",
+        "options": [
+          { "label": "Off", "value": "0" },
+          { "label": "10 seconds", "value": "10" },
+          { "label": "15 seconds", "value": "15" },
+          { "label": "30 seconds", "value": "30" },
+          { "label": "60 seconds", "value": "60" }
+        ]
       }
     ]
   },
