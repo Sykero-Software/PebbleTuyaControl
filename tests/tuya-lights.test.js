@@ -112,9 +112,9 @@ describe('applyActionToState', () => {
 });
 
 describe('cfgToInts', () => {
-  test('defaults: quick-toggle on, auto-close off, mru on, idle-exit 15 when keys absent', () => {
-    expect(L.cfgToInts({})).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1, CfgIdleExitSec: 15 });
-    expect(L.cfgToInts(undefined)).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 1, CfgIdleExitSec: 15 });
+  test('defaults: quick-toggle on, auto-close off, mru OFF, idle-exit 15 when keys absent', () => {
+    expect(L.cfgToInts({})).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 0, CfgIdleExitSec: 15 });
+    expect(L.cfgToInts(undefined)).toEqual({ CfgQuickToggle: 1, CfgAutoClose: 0, CfgMru: 0, CfgIdleExitSec: 15 });
   });
   test('maps booleans to ints', () => {
     expect(L.cfgToInts({ CfgQuickToggle: false, CfgAutoClose: true, CfgMru: false }))

@@ -1,4 +1,4 @@
-var ACTIONS = { REFRESH: 0, TOGGLE: 1, BRIGHT_UP: 2, BRIGHT_DOWN: 3, TEMP_UP: 4, TEMP_DOWN: 5 };
+var ACTIONS = { REFRESH: 0, TOGGLE: 1, BRIGHT_UP: 2, BRIGHT_DOWN: 3, TEMP_UP: 4, TEMP_DOWN: 5, SCENE_RUN: 6 };
 var STEP = 20; // percent per button press
 
 function parseRange(values, dMin, dMax) {
@@ -115,7 +115,7 @@ function cfgToInts(settings) {
   var s = settings || {};
   var qt = (s.CfgQuickToggle === undefined) ? 1 : (s.CfgQuickToggle ? 1 : 0);
   var ac = s.CfgAutoClose ? 1 : 0;
-  var mru = (s.CfgMru === undefined) ? 1 : (s.CfgMru ? 1 : 0);
+  var mru = (s.CfgMru === undefined) ? 0 : (s.CfgMru ? 1 : 0);
   var idle = (s.CfgIdleExitSec === undefined) ? 15 : (parseInt(s.CfgIdleExitSec, 10) || 0);
   return { CfgQuickToggle: qt, CfgAutoClose: ac, CfgMru: mru, CfgIdleExitSec: idle };
 }
