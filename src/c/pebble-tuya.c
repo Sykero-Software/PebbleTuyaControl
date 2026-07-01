@@ -498,6 +498,7 @@ static void scene_resolve(void) {
 }
 static void scene_timeout(void *ctx) { s_close_timer = NULL; scene_resolve(); }
 
+// NB: the scene modal and light auto-close are mutually exclusive — they share s_close_pending_id/s_close_timer, and the closing window swallows all input, so a second action can't start while either is pending.
 void begin_scene_run(int index) {
   if (index < 0 || index >= s_light_count) return;
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }

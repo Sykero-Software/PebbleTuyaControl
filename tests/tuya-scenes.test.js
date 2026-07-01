@@ -82,4 +82,11 @@ describe('resolveSelection', () => {
   test('tolerates a non-array selection', () => {
     expect(S.resolveSelection(undefined, devices, caps, scenes, 12)).toEqual([]);
   });
+  test('defaults max to 12 when max is omitted', () => {
+    const many = [];
+    const caps = {};
+    for (var i = 0; i < 20; i++) { many.push({ id: 'd' + i, name: 'D' + i, online: true }); caps['d' + i] = { switchCode: 'switch_led' }; }
+    const sel = many.map(function (d) { return 'L:' + d.id; });
+    expect(S.resolveSelection(sel, many, caps, undefined).length).toBe(12);
+  });
 });

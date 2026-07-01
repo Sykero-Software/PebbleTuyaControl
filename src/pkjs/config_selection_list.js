@@ -57,12 +57,6 @@ var selectionList = {
     function esc(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
-    function nameFor(kind, id) {
-      for (var i = 0; i < catalogItems.length; i++) {
-        if (catalogItems[i].kind === kind && catalogItems[i].id === id) { return catalogItems[i].name; }
-      }
-      return null;
-    }
     function label(kind, name) { return (kind === 'S' ? '▶ ' : '💡 ') + name; }
     function optionsHtml(selKind, selId) {
       var html = '', found = false, i;

@@ -55,6 +55,7 @@ function makeToken(kind, id) { return kind + ':' + id; }
 // (NO online-first sort — that is the watch's opt-in CfgMru behaviour). Tokens whose
 // device/scene no longer exists are dropped; result is capped at `max`.
 function resolveSelection(selection, devices, capsById, scenes, max) {
+  var m = (max && max > 0) ? max : 12;
   var devById = {}, i;
   var ds = devices || [], caps = capsById || {}, sc = scenes || [];
   for (i = 0; i < ds.length; i++) devById[ds[i].id] = ds[i];
@@ -62,7 +63,7 @@ function resolveSelection(selection, devices, capsById, scenes, max) {
   for (i = 0; i < sc.length; i++) sceneById[sc[i].id] = sc[i];
   var slots = [];
   var sel = Array.isArray(selection) ? selection : [];
-  for (i = 0; i < sel.length && slots.length < max; i++) {
+  for (i = 0; i < sel.length && slots.length < m; i++) {
     var t = parseToken(sel[i]);
     if (!t) continue;
     if (t.kind === 'L') {
