@@ -29,7 +29,7 @@ bool s_cfg_auto_close   = false;   // default OFF (matches Clay defaultValue)
 // --- MRU (most-recently-used) ordering --------------------------------------
 // Recency identity is the light NAME (see spec). s_mru holds names most-recent
 // first; s_order maps a display row to an index into s_lights[].
-bool s_cfg_mru = true;                       // default ON (matches Clay defaultValue)
+bool s_cfg_mru = false;                      // default OFF: list stays in config order (matches Clay defaultValue)
 static char s_mru[MAX_LIGHTS][NAME_LEN];
 static int  s_mru_count = 0;
 static int  s_order[MAX_LIGHTS];
@@ -126,14 +126,19 @@ static StatusBarLayer *s_status;
 static Layer *s_sync_layer = NULL;   // small "syncing" dot over the status strip
 static bool  s_syncing = false;      // set from the phone's Syncing key
 
-// --- Auto-close (close the app once a toggle's cloud command is confirmed) ---
-static char s_close_pending_id[ID_LEN] = "";   // "" = no close pending; matched against CmdDone
-static Light s_close_snapshot;                  // pre-command state, restored if unconfirmed
+// --- Auto-close (lights) + scene-run confirmation modal ---
+static char s_close_pending_id[ID_LEN] = "";   // "" = nothing pending; matched against CmdDone
+static Light s_close_snapshot;                  // pre-command light state, restored if unconfirmed
 static AppTimer *s_close_timer = NULL;
 static Window *s_closing_window = NULL;
 static TextLayer *s_closing_text = NULL;
+static const char *s_closing_msg = "Switching…";  // modal text (retitled for a scene run)
+static bool s_scene_pending = false;              // a scene-run modal is showing
+static bool s_scene_exit_after = false;           // captured auto-close setting at tap time
 static void do_close(void);
 static void cancel_auto_close(void);
+static void scene_resolve(void);
+static void trigger_scene(int row);   // used by menu_select/_long, defined lower down
 
 // --- Stable-id lookup ---
 // The list (both here and the phone's slots) can be reordered asynchronously
@@ -169,7 +174,7 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
   if (s_error[0]) { menu_cell_basic_draw(g, cell, "Error", s_error, NULL); return; }
   if (s_state == ST_LOADING) { menu_cell_basic_draw(g, cell, "Tuya Lights", "Loading…", NULL); return; }
   if (s_state == ST_NOCONFIG) { menu_cell_basic_draw(g, cell, "Tuya Lights", "Configure on phone…", NULL); return; }
-  if (s_light_count == 0) { menu_cell_basic_draw(g, cell, "No lights found", NULL, NULL); return; }
+  if (s_light_count == 0) { menu_cell_basic_draw(g, cell, "Nothing selected", "Choose lights & scenes on phone", NULL); return; }
   int li = (ci->row < s_light_count) ? s_order[ci->row] : ci->row;
   Light *l = &s_lights[li];
   static char sub[24];
@@ -179,6 +184,7 @@ static void menu_draw_row(GContext *g, const Layer *cell, MenuIndex *ci, void *c
   // above online ones (online→offline updates in place without a re-sort). Use the
   // highlight-aware default so the selected row's text stays correct.
   graphics_context_set_text_color(g, menu_cell_layer_is_highlighted(cell) ? GColorWhite : GColorBlack);
+  if (l->kind == KIND_SCENE) { menu_cell_basic_draw(g, cell, l->name, "Scene", NULL); return; }
   if (!l->online) {
     snprintf(sub, sizeof(sub), "Offline");
     graphics_context_set_text_color(g, GColorLightGray);   // disabled look
@@ -192,6 +198,7 @@ static void menu_select(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   if (ci->row >= s_light_count) return;
   int row = s_order[ci->row];
+  if (s_lights[row].kind == KIND_SCENE) { trigger_scene(row); return; }   // scenes: trigger, no toggle/control
   if (!s_lights[row].online) return;   // offline = disabled, silent no-op
   if (!s_cfg_quick_toggle) { control_window_push(row); return; }   // classic behaviour
   Light prev = s_lights[row];             // confirmed state, restored if the command is unconfirmed
@@ -209,6 +216,7 @@ static void menu_select_long(MenuLayer *m, MenuIndex *ci, void *ctx) {
   if (s_state != ST_READY || s_light_count == 0 || s_error[0]) return;
   if (ci->row >= s_light_count) return;
   int row = s_order[ci->row];
+  if (s_lights[row].kind == KIND_SCENE) { trigger_scene(row); return; }   // long-press on a scene == tap
   if (!s_lights[row].online) return;   // offline = disabled, cannot open control window
   control_window_push(row);
 }
@@ -297,6 +305,9 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     if (s_expected_count > MAX_LIGHTS) s_expected_count = MAX_LIGHTS;
     s_load_epoch++;                 // a new full push begins
     s_received_in_epoch = 0;
+    // An explicit empty selection sends ListCount:0 with no rows: prune now (no row
+    // will mark the new epoch) so old rows don't linger after everything is deselected.
+    if (s_expected_count == 0) prune_stale_lights();
   }
   Tuple *qt = dict_find(it, MESSAGE_KEY_CfgQuickToggle);
   if (qt) { s_cfg_quick_toggle = qt->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_QUICK_TOGGLE, s_cfg_quick_toggle); }
@@ -323,6 +334,7 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
       Tuple *br = dict_find(it, MESSAGE_KEY_RowBright); if (br) s_lights[i].bright = br->value->int32;
       Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);   if (tp) s_lights[i].temp = tp->value->int32;
       Tuple *ol = dict_find(it, MESSAGE_KEY_RowOnline); if (ol) s_lights[i].online = ol->value->int32;
+      Tuple *kd = dict_find(it, MESSAGE_KEY_RowKind); if (kd) s_lights[i].kind = kd->value->int32;
       s_seen_epoch[i] = s_load_epoch;
       s_received_in_epoch++;
     }
@@ -337,7 +349,8 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   if (rid) control_window_refresh(rid);
   Tuple *cd = dict_find(it, MESSAGE_KEY_CmdDone);
   if (cd && s_close_pending_id[0] && strcmp(cd->value->cstring, s_close_pending_id) == 0) {
-    do_close();
+    if (s_scene_pending) scene_resolve();   // scene: pop modal (or exit if auto-close)
+    else do_close();                        // light auto-close
   }
 }
 
@@ -401,7 +414,7 @@ static void closing_load(Window *w) {
   s_closing_text = text_layer_create(GRect(4, (b.size.h - 30) / 2, b.size.w - 8, 30));
   text_layer_set_font(s_closing_text, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(s_closing_text, GTextAlignmentCenter);
-  text_layer_set_text(s_closing_text, "Switching…");
+  text_layer_set_text(s_closing_text, s_closing_msg);
   layer_add_child(root, text_layer_get_layer(s_closing_text));
 }
 static void closing_unload(Window *w) { text_layer_destroy(s_closing_text); s_closing_text = NULL; }
@@ -447,8 +460,10 @@ void begin_auto_close(int index, const Light *prev) {
 }
 
 static void cancel_auto_close(void) {
-  if (!s_close_pending_id[0]) return;
+  if (!s_close_pending_id[0] && !s_scene_pending) return;
   s_close_pending_id[0] = '\0';
+  s_scene_pending = false;
+  s_closing_msg = "Switching…";
   if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
   if (s_closing_window) window_stack_remove(s_closing_window, true);   // no-op if not stacked
 }
@@ -462,16 +477,57 @@ static void do_close(void) {
   s_closing_window = NULL;      // drop our handle (app is exiting); avoids any double-destroy
 }
 
+// Trigger a tap-to-run scene: fire the command, record recency, and show a brief
+// confirmation modal (which exits to the watchface if auto-close is on).
+static void trigger_scene(int row) {
+  send_command(row, ACT_SCENE_RUN, -1);   // scene id in CmdLightId, no CmdDesiredOn
+  mark_used(s_lights[row].name);
+  begin_scene_run(row);
+}
+
+// A scene has no persistent state to revert, so the modal is purely informational:
+// CmdDone (or the timeout) resolves it. Exit to the watchface iff auto-close is on.
+static void scene_resolve(void) {
+  if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
+  s_scene_pending = false;
+  s_close_pending_id[0] = '\0';
+  if (s_scene_exit_after) { do_close(); return; }         // exits the app
+  if (s_closing_window) window_stack_remove(s_closing_window, true);
+  s_closing_msg = "Switching…";                            // restore default for light reuse
+  list_window_reload();
+}
+static void scene_timeout(void *ctx) { s_close_timer = NULL; scene_resolve(); }
+
+void begin_scene_run(int index) {
+  if (index < 0 || index >= s_light_count) return;
+  if (s_close_timer) { app_timer_cancel(s_close_timer); s_close_timer = NULL; }
+  s_scene_pending = true;
+  s_scene_exit_after = s_cfg_auto_close;
+  strncpy(s_close_pending_id, s_lights[index].id, ID_LEN - 1);
+  s_close_pending_id[ID_LEN - 1] = '\0';
+  s_closing_msg = "Triggered";
+  if (!s_closing_window) {
+    s_closing_window = window_create();
+    window_set_window_handlers(s_closing_window, (WindowHandlers){ .load = closing_load, .unload = closing_unload });
+    window_set_click_config_provider(s_closing_window, closing_click_config);
+  }
+  if (window_stack_get_top_window() != s_closing_window) window_stack_push(s_closing_window, true);
+  // Wait a moment: if auto-closing, long enough to receive CmdDone before exiting;
+  // otherwise just a brief "Triggered" flash before returning to the list.
+  s_close_timer = app_timer_register(s_scene_exit_after ? 8000 : 1200, scene_timeout, NULL);
+}
+
 static void init(void) {
   load_persisted();
 #ifdef SCREENSHOT_FIXTURES
   // Deterministic demo light list for appstore screenshots (no phone/cloud needed).
   // Compiled out of normal builds; enabled via the wscript SCREENSHOT_FIXTURES define.
-  s_light_count = 4;
-  strncpy(s_lights[0].name, "Living room", NAME_LEN - 1); s_lights[0].on = 1; s_lights[0].bright = 80;  s_lights[0].temp = 50; s_lights[0].online = 1;
-  strncpy(s_lights[1].name, "Kitchen",     NAME_LEN - 1); s_lights[1].on = 1; s_lights[1].bright = 100; s_lights[1].temp = -1; s_lights[1].online = 1;
-  strncpy(s_lights[2].name, "Bedroom",     NAME_LEN - 1); s_lights[2].on = 0; s_lights[2].bright = 40;  s_lights[2].temp = 30; s_lights[2].online = 1;
-  strncpy(s_lights[3].name, "Garage",      NAME_LEN - 1); s_lights[3].on = 0; s_lights[3].bright = 0;   s_lights[3].temp = -1; s_lights[3].online = 0;
+  s_light_count = 5;
+  strncpy(s_lights[0].name, "Living room", NAME_LEN - 1); s_lights[0].kind = KIND_LIGHT; s_lights[0].on = 1; s_lights[0].bright = 80;  s_lights[0].temp = 50; s_lights[0].online = 1;
+  strncpy(s_lights[1].name, "Kitchen",     NAME_LEN - 1); s_lights[1].kind = KIND_LIGHT; s_lights[1].on = 1; s_lights[1].bright = 100; s_lights[1].temp = -1; s_lights[1].online = 1;
+  strncpy(s_lights[2].name, "Bedroom",     NAME_LEN - 1); s_lights[2].kind = KIND_LIGHT; s_lights[2].on = 0; s_lights[2].bright = 40;  s_lights[2].temp = 30; s_lights[2].online = 1;
+  strncpy(s_lights[3].name, "Movie time",  NAME_LEN - 1); s_lights[3].kind = KIND_SCENE; s_lights[3].online = 1;
+  strncpy(s_lights[4].name, "Garage",      NAME_LEN - 1); s_lights[4].kind = KIND_LIGHT; s_lights[4].on = 0; s_lights[4].bright = 0;   s_lights[4].temp = -1; s_lights[4].online = 0;
   s_state = ST_READY;
   s_error[0] = '\0';
   rebuild_order();

@@ -42,6 +42,9 @@ void send_command(int index, int action, int desired_on);
 // is the light's pre-command state: if no confirmation arrives, the change is reverted
 // to it and an error shown (the app stays open) rather than exiting as if it succeeded.
 void begin_auto_close(int index, const Light *prev);
+// Show the scene-run confirmation modal ("Triggered"); pops on CmdDone/timeout, or
+// exits to the watchface if auto-close is on. Defined in pebble-tuya.c.
+void begin_scene_run(int index);
 void tuya_mark_used(int light_index);  // record recency for a light + reorder the list
 
 // Idle auto-exit (return to watchface after inactivity). Defined in pebble-tuya.c;
