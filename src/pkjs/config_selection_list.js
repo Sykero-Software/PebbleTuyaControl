@@ -24,10 +24,12 @@ var selectionList = {
   name: 'selectionList',
   template:
     '<div class="sl-root">' +
+    '<div class="sl-status"></div>' +
     '<div class="sl-list"></div>' +
     '<button type="button" class="sl-add">+ Add</button>' +
     '</div>',
   style:
+    '.sl-status{margin:0 0 8px 0;font-size:0.85rem;color:#bbb}' +
     '.sl-row{display:flex;align-items:center;margin:0 0 8px 0}' +
     '.sl-row .sl-sel{flex:1 1 auto;min-width:0;height:2.8rem;margin:0;background-color:#767676;color:#fff;border:none;border-radius:0.3rem;padding:0 0.5rem;color-scheme:dark}' +
     '.sl-row button{flex:0 0 auto;min-width:0;width:2.8rem;height:2.8rem;margin:0 0 0 6px;padding:0}' +
@@ -112,9 +114,25 @@ var selectionList = {
       if (catalogItems.length) { return catalogItems[0].kind + ':' + catalogItems[0].id; }
       return '';
     }
+    function updateStatus() {
+      var lights = 0, scenes = 0, i;
+      for (i = 0; i < catalogItems.length; i++) {
+        if (catalogItems[i].kind === 'S') { scenes++; } else { lights++; }
+      }
+      var el = root.querySelector('.sl-status');
+      if (!el) { return; }
+      if (catalogItems.length === 0) {
+        el.textContent = 'No devices loaded yet — save your credentials, then close and reopen this page.';
+      } else {
+        el.textContent = 'Loaded ' + lights + ' light' + (lights === 1 ? '' : 's') + ', ' + scenes + ' scene' + (scenes === 1 ? '' : 's') + '.';
+      }
+    }
 
     self._slGetValue = function () { return readTokens(); };
     self._slRebuild = function (tokens) { renderTokens(tokens || []); };
+
+    // Show status even before AFTER_BUILD if the catalog is somehow already present.
+    updateStatus();
 
     root.addEventListener('click', function (e) {
       var t = e.target;
@@ -154,6 +172,7 @@ var selectionList = {
         if (parsed && parsed.items) { catalogItems = parsed.items; }
       }
       renderTokens(readTokens());
+      updateStatus();
     });
   }
 };
