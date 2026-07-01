@@ -94,21 +94,6 @@ function applyActionToState(action, state, caps, desiredOn) {
   return ns;
 }
 
-function mapDevicesToSlots(devices, capsById) {
-  var online = [], offline = [];
-  for (var i = 0; i < devices.length; i++) {
-    var d = devices[i];
-    var c = capsById[d.id];
-    if (!(c && c.switchCode)) continue;
-    var slot = { index: 0, id: d.id, name: d.name, online: d.online ? 1 : 0 };
-    (slot.online ? online : offline).push(slot);
-  }
-  // Online lights first, offline pushed to the bottom of the list; cap at 12.
-  var all = online.concat(offline).slice(0, 12);
-  for (var j = 0; j < all.length; j++) all[j].index = j;
-  return all;
-}
-
 // Phone settings (Clay 'clay-settings', booleans/undefined) -> ints for the watch.
 // Defaults when a key has never been saved: quick-toggle ON, auto-close OFF.
 function cfgToInts(settings) {
@@ -160,7 +145,7 @@ function unpackModel(str) {
 module.exports = {
   ACTIONS: ACTIONS, detectCaps: detectCaps, rawToPercent: rawToPercent, percentToRaw: percentToRaw,
   parseStatus: parseStatus, actionToCommands: actionToCommands,
-  applyActionToState: applyActionToState, mapDevicesToSlots: mapDevicesToSlots,
+  applyActionToState: applyActionToState,
   cfgToInts: cfgToInts, resolveSlot: resolveSlot, commandDeliverable: commandDeliverable,
   packModel: packModel, unpackModel: unpackModel
 };

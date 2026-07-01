@@ -197,33 +197,6 @@ describe('packModel / unpackModel (localStorage cache)', () => {
   });
 });
 
-describe('mapDevicesToSlots', () => {
-  test('keeps only switchable lights, carries online flag', () => {
-    const devs = [
-      { id: 'a', name: 'Lamp A', online: true },
-      { id: 'b', name: 'Lamp B' }
-    ];
-    const caps = { a: { switchCode: 'switch_led' }, b: { switchCode: null } };
-    const slots = L.mapDevicesToSlots(devs, caps);
-    expect(slots).toEqual([{ index: 0, id: 'a', name: 'Lamp A', online: 1 }]);
-  });
-
-  test('sorts offline lights to the bottom and renumbers indices', () => {
-    const devs = [
-      { id: 'a', name: 'A', online: false },
-      { id: 'b', name: 'B', online: true },
-      { id: 'c', name: 'C', online: false },
-      { id: 'd', name: 'D', online: true }
-    ];
-    const caps = { a: { switchCode: 'switch_led' }, b: { switchCode: 'switch_led' },
-                   c: { switchCode: 'switch_led' }, d: { switchCode: 'switch_led' } };
-    const slots = L.mapDevicesToSlots(devs, caps);
-    expect(slots.map(function (s) { return s.id; })).toEqual(['b', 'd', 'a', 'c']);
-    expect(slots.map(function (s) { return s.index; })).toEqual([0, 1, 2, 3]);
-    expect(slots.map(function (s) { return s.online; })).toEqual([1, 1, 0, 0]);
-  });
-});
-
 describe('actionToCommands with absolute desiredOn (from the watch-displayed state)', () => {
   const caps = { switchCode: 'switch_led', brightCode: 'bright_value_v2', brightMin: 10, brightMax: 1000,
                  tempCode: 'temp_value_v2', tempMin: 0, tempMax: 1000 };

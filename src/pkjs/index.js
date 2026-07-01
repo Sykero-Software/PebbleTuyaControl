@@ -7,6 +7,7 @@ var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
 
 var client = require('./tuya-client');
 var L = require('./tuya-lights');
+var S = require('./tuya-scenes');
 
 var REGION_HOST = {
   eu: 'https://openapi.tuyaeu.com', us: 'https://openapi.tuyaus.com',
@@ -18,6 +19,8 @@ var slots = [];            // [{index, id, name}]
 var capsById = {};         // id -> caps
 var stateById = {};        // id -> {on,bright,temp}
 var _pendingCmds = [];      // commands received before slots/caps were ready
+var scenes = [];               // [{id,name,home_id}] from the last scene fetch
+var catalog = { v: 1, items: [] };   // all selectable entries, baked into the config page
 
 function drainPending() {
   if (!_pendingCmds.length) return;
@@ -112,6 +115,22 @@ function clearModel() {
   try { localStorage.removeItem(MODEL_CACHE_KEY); } catch (e) {}
 }
 
+// Persist the catalog (device+scene names + scene home_ids) so a scene tapped right
+// after a cold start is triggerable from cache (home_id known) without a full refetch,
+// and so the config page can show it on first open.
+var CATALOG_CACHE_KEY = 'tuya-catalog';
+function saveCatalog() { try { localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(catalog)); } catch (e) {} }
+function loadCatalog() {
+  try { var o = JSON.parse(localStorage.getItem(CATALOG_CACHE_KEY)); if (o && o.items) catalog = o; } catch (e) {}
+}
+function sceneHomeId(id) {
+  for (var i = 0; i < catalog.items.length; i++) {
+    var it = catalog.items[i];
+    if (it.kind === 'S' && it.id === id) return it.home_id;
+  }
+  return null;
+}
+
 // Pebble has a SINGLE outbox: a second sendAppMessage before the first is ACKed is
 // dropped (APP_MSG_BUSY). Serialize all outbound messages through an ack-gated queue
 // so multi-row list pushes arrive reliably.
@@ -134,7 +153,8 @@ function sendError(msg) {
 function rowMsg(slot, st) {
   return {
     RowIndex: slot.index, RowId: slot.id, RowName: slot.name,
-    RowOn: st.on, RowBright: st.bright, RowTemp: st.temp, RowOnline: slot.online
+    RowOn: st.on, RowBright: st.bright, RowTemp: st.temp,
+    RowOnline: slot.online, RowKind: (slot.kind === 'S') ? 1 : 0
   };
 }
 
@@ -145,19 +165,41 @@ function pushRows() {
   });
 }
 
+// Fetch tap-to-run scenes for every home the linked account owns. Best-effort: any
+// failure (e.g. the "Smart Home Scene Linkage" API not subscribed) resolves to [] so
+// the device list still works.
+function fetchScenes(c, devices) {
+  var uid = S.extractUid(devices);
+  if (!uid) return Promise.resolve([]);
+  return c.request('GET', '/v1.0/users/' + uid + '/homes').then(function (resp) {
+    var homes = (resp.result) || [];
+    var all = [];
+    var chain = Promise.resolve();
+    homes.forEach(function (h) {
+      chain = chain.then(function () {
+        return c.request('GET', '/v1.1/homes/' + h.home_id + '/scenes').then(function (sr) {
+          var raw = (sr.result && sr.result.list) || sr.result || [];   // tolerate array or {list:[]}
+          all = all.concat(S.filterScenes(raw, h.home_id));
+        });
+      });
+    });
+    return chain.then(function () { return all; });
+  }).catch(function () { return []; });
+}
+
 function loadAll() {
   var c = getClient();
   if (!c) { sendMsg({ Ready: 0 }); return; }
   sendMsg({ Syncing: 1 });
 
+  var devices = [];
   c.request('GET', '/v1.0/iot-01/associated-users/devices').then(function (resp) {
-    var devices = (resp.result && resp.result.devices) || [];
-    // Fetch specification + status for each device sequentially (small N).
+    devices = (resp.result && resp.result.devices) || [];
+    // Specification (capability codes/ranges; cached, never changes) + live status,
+    // per device, sequentially (small N).
     var chain = Promise.resolve();
     devices.forEach(function (d) {
       chain = chain.then(function () {
-        // Specification gives capability codes + ranges and never changes — fetch
-        // it once and cache, so polling re-fetches only the (changing) status.
         var capsP = capsById[d.id]
           ? Promise.resolve(capsById[d.id])
           : c.request('GET', '/v1.0/iot-03/devices/' + d.id + '/specification').then(function (spec) {
@@ -170,18 +212,25 @@ function loadAll() {
         });
       });
     });
-    return chain.then(function () {
-      slots = L.mapDevicesToSlots(devices, capsById);
-      saveModel();   // refresh the cross-launch cache with the authoritative model
-      pushRows();
-      drainPending();
-      sendMsg({ Syncing: 0 });
-    });
+    return chain;
+  }).then(function () {
+    return fetchScenes(c, devices);
+  }).then(function (fetched) {
+    scenes = fetched;
+    catalog = S.buildCatalog(devices, capsById, scenes);
+    saveCatalog();
+    // The user's ordered selection is the single source of truth for the list.
+    slots = S.resolveSelection(readSettings().TuyaSelection, devices, capsById, scenes, 12);
+    saveModel();
+    pushRows();
+    drainPending();
+    sendMsg({ Syncing: 0 });
   }).catch(function (e) { sendMsg({ Syncing: 0 }); sendError(e.message || 'Tuya error'); });
 }
 
 function handleCommand(id, action, desiredOn) {
   if (action === L.ACTIONS.REFRESH) { loadAll(); return; }
+  if (action === L.ACTIONS.SCENE_RUN) { triggerScene(id); return; }
   if (!L.commandDeliverable(id, slots, capsById, stateById)) {
     _pendingCmds.push({ id: id, action: action, desiredOn: desiredOn });   // replayed after loadAll()
     return;
@@ -209,6 +258,34 @@ function handleCommand(id, action, desiredOn) {
     });
 }
 
+// Resolve a scene's home_id from the cached catalog; if absent (a scene added since
+// the last load), refetch devices+scenes once, rebuild the catalog, and try again.
+function ensureSceneHome(c, id) {
+  var home = sceneHomeId(id);
+  if (home) return Promise.resolve(home);
+  var devices = [];
+  return c.request('GET', '/v1.0/iot-01/associated-users/devices').then(function (resp) {
+    devices = (resp.result && resp.result.devices) || [];
+    return fetchScenes(c, devices);
+  }).then(function (fetched) {
+    scenes = fetched;
+    catalog = S.buildCatalog(devices, capsById, scenes);
+    saveCatalog();
+    return sceneHomeId(id);
+  });
+}
+
+function triggerScene(id) {
+  var c = getClient();
+  if (!c) { sendMsg({ Ready: 0 }); return; }
+  ensureSceneHome(c, id).then(function (home) {
+    if (!home) { sendError('Scene not found'); return; }
+    return c.request('POST', '/v1.0/homes/' + home + '/scenes/' + id + '/trigger', null).then(function () {
+      sendMsg({ CmdDone: id });   // success — confirms the watch's scene-run modal (by id)
+    });
+  }).catch(function (e) { sendError(e.message || 'Scene failed'); });
+}
+
 // Auto-refresh timer (only while the app is open — PKJS runs foreground-only).
 var _pollTimer = null;
 function startPolling() {
@@ -219,6 +296,7 @@ function startPolling() {
 
 Pebble.addEventListener('ready', function () {
   sendConfig();
+  loadCatalog();   // scene home_ids available immediately for a launch-time scene tap
   // Restore the cached model first so a command pressed during the cold-start
   // refresh is deliverable immediately (POSTed now) instead of queued until loadAll.
   if (loadModel()) pushRows();
@@ -227,8 +305,43 @@ Pebble.addEventListener('ready', function () {
 });
 
 Pebble.addEventListener('showConfiguration', function () {
-  Pebble.openURL(clay.generateUrl());
+  refreshCatalogThen(function () {
+    seedConfigData();
+    Pebble.openURL(clay.generateUrl());
+  });
 });
+
+// Refresh the catalog (device + scene names) before opening config so the picker is
+// current. Best-effort: on any failure (or no creds) open with whatever catalog we have.
+function refreshCatalogThen(cb) {
+  var c = getClient();
+  if (!c) { cb(); return; }
+  var devices = [];
+  c.request('GET', '/v1.0/iot-01/associated-users/devices').then(function (resp) {
+    devices = (resp.result && resp.result.devices) || [];
+    var chain = Promise.resolve();
+    devices.forEach(function (d) {
+      chain = chain.then(function () {
+        return capsById[d.id] ? Promise.resolve()
+          : c.request('GET', '/v1.0/iot-03/devices/' + d.id + '/specification').then(function (spec) {
+              capsById[d.id] = L.detectCaps(spec.result);
+            });
+      });
+    });
+    return chain;
+  }).then(function () { return fetchScenes(c, devices); })
+    .then(function (fetched) { scenes = fetched; catalog = S.buildCatalog(devices, capsById, scenes); saveCatalog(); cb(); })
+    .catch(function () { cb(); });
+}
+
+// Bake the catalog + a default (empty) selection into clay-settings so the config
+// page's custom components can read them (the config webview has no localStorage).
+function seedConfigData() {
+  var s = readSettings();
+  s.TuyaCatalog = JSON.stringify(catalog);
+  if (s.TuyaSelection === undefined) s.TuyaSelection = [];
+  try { localStorage.setItem('clay-settings', JSON.stringify(s)); } catch (e) {}
+}
 
 Pebble.addEventListener('webviewclosed', function (e) {
   if (!e || !e.response) { return; }
