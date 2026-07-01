@@ -309,6 +309,7 @@ Pebble.addEventListener('ready', function () {
 });
 
 Pebble.addEventListener('showConfiguration', function () {
+  sendMsg({ CfgOpen: 1 });   // pause the watch's idle auto-exit while the config page is open
   refreshCatalogThen(function () {
     seedConfigData();
     Pebble.openURL(clay.generateUrl());
@@ -348,6 +349,7 @@ function seedConfigData() {
 }
 
 Pebble.addEventListener('webviewclosed', function (e) {
+  sendMsg({ CfgOpen: 0 });   // config closed -> resume the watch's idle auto-exit (also on cancel)
   if (!e || !e.response) { return; }
   clay.getSettings(e.response); // persists flattened values to localStorage 'clay-settings'
   sendConfig();                  // push the (possibly changed) control toggles to the watch

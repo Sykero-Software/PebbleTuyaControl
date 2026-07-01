@@ -91,16 +91,19 @@ static void rebuild_order(void) {
 // by every press. 0 = off; default 15s (overridden by persist + config). ----
 static int       s_idle_timeout_sec = 15;
 static AppTimer *s_idle_timer;
+static bool      s_config_open = false;   // true while the phone config page is open (pauses idle)
 
 void idle_cancel(void) {
   if (s_idle_timer) { app_timer_cancel(s_idle_timer); s_idle_timer = NULL; }
 }
 static void idle_fire(void *ctx) {
   s_idle_timer = NULL;
+  APP_LOG(APP_LOG_LEVEL_INFO, "idle_fire: idle %ds elapsed -> exit to watchface", s_idle_timeout_sec);
   exit_reason_set(APP_EXIT_ACTION_PERFORMED_SUCCESSFULLY);
   window_stack_pop_all(true);   // exits to the watchface; deinit() persists state
 }
 void idle_reset(void) {
+  if (s_config_open) return;              // never (re)arm while the phone config page is open
   if (s_idle_timeout_sec <= 0) { idle_cancel(); return; }
   if (s_idle_timer) { app_timer_reschedule(s_idle_timer, s_idle_timeout_sec * 1000); }
   else { s_idle_timer = app_timer_register(s_idle_timeout_sec * 1000, idle_fire, NULL); }
@@ -318,6 +321,15 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
   Tuple *iet = dict_find(it, MESSAGE_KEY_CfgIdleExitSec);
   int isec = idle_read_seconds(iet);
   if (isec >= 0) { s_idle_timeout_sec = isec; persist_write_int(PERSIST_KEY_IDLE_EXIT, isec); idle_reset(); }
+  // Pause the idle auto-exit while the phone config page is open (no watch buttons are
+  // pressed during config, so the idle timer would otherwise fire and kill the app —
+  // and PKJS with it — closing the config page and losing unsaved changes).
+  Tuple *co = dict_find(it, MESSAGE_KEY_CfgOpen);
+  if (co) {
+    s_config_open = co->value->int32 ? true : false;
+    if (s_config_open) { idle_cancel(); APP_LOG(APP_LOG_LEVEL_INFO, "config open: idle paused"); }
+    else               { idle_reset();  APP_LOG(APP_LOG_LEVEL_INFO, "config closed: idle resumed"); }
+  }
   Tuple *rid_t = dict_find(it, MESSAGE_KEY_RowId);
   const char *rid = rid_t ? rid_t->value->cstring : NULL;
   if (rid && rid[0]) {

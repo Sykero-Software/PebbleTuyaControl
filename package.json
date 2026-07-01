@@ -26,7 +26,7 @@
       "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready", "RowOnline",
       "CfgQuickToggle", "CfgAutoClose", "CmdDone", "CfgMru",
       "RowId", "CmdLightId",
-      "CmdDesiredOn", "Syncing", "CfgIdleExitSec", "RowKind"
+      "CmdDesiredOn", "Syncing", "CfgIdleExitSec", "RowKind", "CfgOpen"
     ],
     "resources": {
       "media": [
