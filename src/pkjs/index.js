@@ -5,6 +5,10 @@ var clayConfig = require('./config');
 // them via clay.getSettings() (writes localStorage 'clay-settings') and reload ourselves.
 var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
 
+var selComp = require('./config_selection_list');
+clay.registerComponent(selComp.catalogStore);
+clay.registerComponent(selComp.selectionList);
+
 var client = require('./tuya-client');
 var L = require('./tuya-lights');
 var S = require('./tuya-scenes');

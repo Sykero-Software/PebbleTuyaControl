@@ -32,6 +32,15 @@ module.exports = [
   {
     "type": "section",
     "items": [
+      { "type": "heading", "defaultValue": "Devices & scenes" },
+      { "type": "text", "defaultValue": "Pick the lights and scenes to show on the watch, in order. Reorder with ▲/▼, remove with ✕, add with “+ Add”. Open this page once after saving your credentials so the list can load.<br><br>Scenes (tap-to-run) also need the <b>Smart Home Scene Linkage</b> API subscribed in your Tuya Cloud project (Service API &gt; Authorize)." },
+      { "type": "catalogStore", "messageKey": "TuyaCatalog", "defaultValue": "" },
+      { "type": "selectionList", "messageKey": "TuyaSelection", "defaultValue": [] }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
       { "type": "heading", "defaultValue": "Behavior" },
       { "type": "toggle", "messageKey": "CfgQuickToggle",
         "label": "Tap in list toggles the light (hold to open controls)",
@@ -42,9 +51,9 @@ module.exports = [
         "description": "When on, the app closes back to the watchface once the phone confirms the cloud command.",
         "defaultValue": false },
       { "type": "toggle", "messageKey": "CfgMru",
-        "label": "Sort list by most-recently used (offline last)",
-        "description": "When on, lights you toggle most recently move to the top of the list; offline lights sink to the bottom.",
-        "defaultValue": true },
+        "label": "Auto-organize list (recent first, offline last)",
+        "description": "When off, the watch shows lights and scenes in the exact order you set above. When on, entries you use most recently move to the top and offline lights sink to the bottom.",
+        "defaultValue": false },
       { "type": "select", "messageKey": "TuyaPollInterval", "label": "Auto-refresh while open",
         "description": "State is always fetched when you open the app. Auto-refresh also re-polls while the app stays open (uses more data/battery).",
         "defaultValue": "0",
