@@ -8,17 +8,22 @@
 // CmdAction enum — must match L.ACTIONS in tuya-lights.js.
 enum {
   ACT_REFRESH = 0, ACT_TOGGLE = 1, ACT_BRIGHT_UP = 2,
-  ACT_BRIGHT_DOWN = 3, ACT_TEMP_UP = 4, ACT_TEMP_DOWN = 5
+  ACT_BRIGHT_DOWN = 3, ACT_TEMP_UP = 4, ACT_TEMP_DOWN = 5, ACT_SCENE_RUN = 6
 };
+
+// List entry kind (RowKind): a switchable light, or a tap-to-run scene.
+#define KIND_LIGHT 0
+#define KIND_SCENE 1
 
 typedef struct {
   char name[NAME_LEN];
-  char id[ID_LEN];   // stable Tuya device id — used to address commands (not the array index)
-  int on;       // 0/1
-  int bright;   // 0-100
-  int temp;     // 0-100, -1 = unsupported
-  int online;   // 0/1 reachability
-} Light;
+  char id[ID_LEN];   // stable Tuya device id (light) OR scene_id (scene) — addresses commands
+  int kind;     // KIND_LIGHT | KIND_SCENE
+  int on;       // light: 0/1                (scene: unused)
+  int bright;   // light: 0-100              (scene: unused)
+  int temp;     // light: 0-100, -1 = unsupported (scene: unused)
+  int online;   // light: 0/1 reachability   (scene: always 1)
+} Light;   // sizeof grows 48->52; the persist size-check discards old records once (reset)
 
 // Shared light state — defined in pebble-tuya.c.
 extern Light s_lights[MAX_LIGHTS];
