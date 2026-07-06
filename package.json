@@ -1,9 +1,11 @@
 {
   "name": "pebble-tuya-control",
-  "author": "Sykerö Software",
-  "version": "1.1.0",
+  "author": "Syker\u00f6 Software",
+  "version": "1.1.1",
   "private": true,
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "dependencies": {
     "pebble-clay": "^1.0.4",
     "js-sha256": "^0.11.0"
@@ -19,18 +21,47 @@
     "uuid": "f1d4c7a0-3b2e-4c9a-9e2f-7a6b5c4d3e21",
     "sdkVersion": "3",
     "enableMultiJS": true,
-    "targetPlatforms": ["basalt", "diorite", "emery", "flint"],
-    "watchapp": { "watchface": false },
+    "targetPlatforms": [
+      "basalt",
+      "diorite",
+      "emery",
+      "flint"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
     "messageKeys": [
-      "ListCount", "RowIndex", "RowName", "RowOn", "RowBright", "RowTemp",
-      "CmdLightIndex", "CmdAction", "ErrorMsg", "Ready", "RowOnline",
-      "CfgQuickToggle", "CfgAutoClose", "CmdDone", "CfgMru",
-      "RowId", "CmdLightId",
-      "CmdDesiredOn", "Syncing", "CfgIdleExitSec", "RowKind", "CfgOpen"
+      "ListCount",
+      "RowIndex",
+      "RowName",
+      "RowOn",
+      "RowBright",
+      "RowTemp",
+      "CmdLightIndex",
+      "CmdAction",
+      "ErrorMsg",
+      "Ready",
+      "RowOnline",
+      "CfgQuickToggle",
+      "CfgAutoClose",
+      "CmdDone",
+      "CfgMru",
+      "RowId",
+      "CmdLightId",
+      "CmdDesiredOn",
+      "Syncing",
+      "CfgIdleExitSec",
+      "RowKind",
+      "CfgOpen"
     ],
     "resources": {
       "media": [
-        { "type": "bitmap", "menuIcon": true, "name": "MENU_ICON", "file": "images/menuicon.png" }
+        {
+          "type": "bitmap",
+          "menuIcon": true,
+          "name": "MENU_ICON",
+          "file": "images/menuicon.png"
+        }
       ]
     }
   }
