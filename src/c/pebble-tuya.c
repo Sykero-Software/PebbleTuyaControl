@@ -1,5 +1,6 @@
 #include <pebble.h>
 #include "tuya.h"
+#include "row_order.h"
 
 Light s_lights[MAX_LIGHTS];   // file-scope: shared with control-window.c via tuya.h
 int s_light_count = 0;
@@ -36,10 +37,12 @@ static int  s_order[MAX_LIGHTS];
 
 // Load-batch reconciliation (D3): each full push from PKJS is one epoch. Rows seen in
 // the current epoch survive; rows absent (device removed) are pruned when the batch
-// completes (received == ListCount). Parallel array, NOT a Light field — keeps
-// sizeof(Light) and the persist format unchanged.
+// completes (received == ListCount), and the survivors are put into the config order the
+// phone sent (RowIndex). Parallel arrays, NOT Light fields — keeps sizeof(Light) and the
+// persist format unchanged.
 static int s_load_epoch = 0;
 static int s_seen_epoch[MAX_LIGHTS];
+static int s_row_index[MAX_LIGHTS];   // RowIndex received this epoch (-1 = none)
 static int s_received_in_epoch = 0;
 static int s_expected_count = 0;
 
@@ -264,25 +267,38 @@ void tuya_mark_used(int light_index) {
   list_window_reload();
 }
 
-// Drop lights not seen in the current load epoch (removed from the account), preserving
-// the DISPLAY order of survivors. Buffers are static: the event loop is single-threaded,
-// and big stack locals overflow the ~2 KB Pebble app stack (CLAUDE.md).
-static void prune_stale_lights(void) {
+// End of a load batch: reconcile storage with the phone in ONE step — drop rows not seen
+// in this epoch (deselected in the config / removed from the account) and put the
+// survivors into the order the phone sent (RowIndex = position in the user's ordered
+// config selection, which is the single source of truth for the list).
+//
+// The mid-load freeze (D2) is unchanged: rows still update in place while the batch
+// arrives, and the list only ever reflows here, atomically. A routine refresh sends the
+// same order it sent last time, so the permutation is the identity and nothing moves at
+// all (which also leaves an MRU sort alone); the list is reordered only when the user
+// actually changed the selection. Commands are addressed by stable id, so a reorder can
+// never redirect an in-flight command.
+//
+// Buffers are static: the event loop is single-threaded, and big stack locals overflow
+// the ~2 KB Pebble app stack (CLAUDE.md).
+static void reconcile_epoch(void) {
+  static int seen[MAX_LIGHTS];
+  static int perm[MAX_LIGHTS];
   static Light tmp[MAX_LIGHTS];
-  static int seen_tmp[MAX_LIGHTS];
-  int w = 0;
-  for (int d = 0; d < s_light_count; d++) {       // iterate in DISPLAY order
-    int si = s_order[d];
-    if (si >= 0 && si < s_light_count && s_seen_epoch[si] == s_load_epoch) {
-      tmp[w] = s_lights[si];
-      seen_tmp[w] = s_seen_epoch[si];
-      w++;
-    }
+  static int rix_tmp[MAX_LIGHTS];
+  int n = s_light_count; if (n > MAX_LIGHTS) n = MAX_LIGHTS;
+  for (int i = 0; i < n; i++) seen[i] = (s_seen_epoch[i] == s_load_epoch) ? 1 : 0;
+  int w = row_order_reconcile(s_row_index, seen, n, perm);
+  if (row_order_is_identity(perm, w, n)) return;   // nothing pruned, nothing moved
+  for (int k = 0; k < w; k++) { tmp[k] = s_lights[perm[k]]; rix_tmp[k] = s_row_index[perm[k]]; }
+  for (int k = 0; k < w; k++) {
+    s_lights[k] = tmp[k];
+    s_row_index[k] = rix_tmp[k];
+    s_seen_epoch[k] = s_load_epoch;                // every survivor was seen this epoch
   }
-  if (w == s_light_count) return;                 // nothing removed
-  for (int i = 0; i < w; i++) { s_lights[i] = tmp[i]; s_seen_epoch[i] = seen_tmp[i]; }
   s_light_count = w;
-  for (int i = 0; i < w; i++) s_order[i] = i;      // storage now == display order
+  rebuild_order();   // identity (= config order) when MRU is off; MRU sort when it's on
+  APP_LOG(APP_LOG_LEVEL_INFO, "reconcile: %d -> %d rows, config order applied", n, w);
 }
 
 // --- AppMessage receive ---
@@ -308,9 +324,9 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
     if (s_expected_count > MAX_LIGHTS) s_expected_count = MAX_LIGHTS;
     s_load_epoch++;                 // a new full push begins
     s_received_in_epoch = 0;
-    // An explicit empty selection sends ListCount:0 with no rows: prune now (no row
+    // An explicit empty selection sends ListCount:0 with no rows: reconcile now (no row
     // will mark the new epoch) so old rows don't linger after everything is deselected.
-    if (s_expected_count == 0) prune_stale_lights();
+    if (s_expected_count == 0) reconcile_epoch();
   }
   Tuple *qt = dict_find(it, MESSAGE_KEY_CfgQuickToggle);
   if (qt) { s_cfg_quick_toggle = qt->value->int32 ? true : false; persist_write_bool(PERSIST_KEY_QUICK_TOGGLE, s_cfg_quick_toggle); }
@@ -338,6 +354,7 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
       i = s_light_count++;
       strncpy(s_lights[i].id, rid, ID_LEN - 1); s_lights[i].id[ID_LEN - 1] = '\0';
       s_order[i] = i;                                     // new row at the bottom; existing rows don't reflow
+      s_row_index[i] = -1;                                // until this message's RowIndex is read
     }
     if (i >= 0) {
       Tuple *n = dict_find(it, MESSAGE_KEY_RowName);
@@ -347,14 +364,19 @@ static void inbox_received(DictionaryIterator *it, void *ctx) {
       Tuple *tp = dict_find(it, MESSAGE_KEY_RowTemp);   if (tp) s_lights[i].temp = tp->value->int32;
       Tuple *ol = dict_find(it, MESSAGE_KEY_RowOnline); if (ol) s_lights[i].online = ol->value->int32;
       Tuple *kd = dict_find(it, MESSAGE_KEY_RowKind); if (kd) s_lights[i].kind = kd->value->int32;
+      // The row's position in the user's ordered config selection: applied to the list
+      // when the batch completes (reconcile_epoch), never mid-load.
+      Tuple *rx = dict_find(it, MESSAGE_KEY_RowIndex);
+      s_row_index[i] = rx ? (int)rx->value->int32 : -1;
       s_seen_epoch[i] = s_load_epoch;
       s_received_in_epoch++;
     }
   }
   // D2: display order is FROZEN during loads — NO rebuild_order() here. Values update
-  // in place (D1); order is recomputed only at launch and after a user action.
+  // in place (D1); the list is reconciled with the phone's config order only once the
+  // whole batch has arrived (below), at launch, and after a user action.
   if (s_expected_count > 0 && s_received_in_epoch >= s_expected_count) {
-    prune_stale_lights();
+    reconcile_epoch();
     s_expected_count = 0;           // batch consumed; later stray rows (e.g. CmdDone) don't re-prune
   }
   list_window_reload();

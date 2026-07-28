@@ -58,15 +58,22 @@ same Smart Life account your lights are paired to.
   control window; off = tap opens the control window.
 - **Close the app after toggling** (default off) — returns to the watchface once the
   phone confirms the cloud command (a "Switching…" screen shows meanwhile).
-- **Sort list by most-recently used** (default on) — recently toggled lights rise to
-  the top; offline lights sink to the bottom.
+- **Devices & scenes** — the ordered list of lights/scenes to show on the watch
+  (reorder with ▲/▼). This order is the source of truth: the watch mirrors it,
+  and re-saving a new order reorders the watch list on the next refresh.
+- **Auto-organize list** (default off) — when on, recently used entries rise to the
+  top and offline lights sink to the bottom, overriding the configured order.
 - **Auto-refresh while open** (default off) — state is always fetched on open; this
   also re-polls while the app stays open (more data/battery).
+- **Return to watchface when idle** (default 15 s) — closes back to the watchface
+  after that long with no button press.
 
 ## Build / test
 
 - Build: `pebble build` (PKJS bundles `js-sha256` for HMAC signing + Clay).
 - Unit tests: `npm test` (Jest — signing, token, lights logic).
+- Watch-side list ordering (pure C core):
+  `gcc -I src/c tests/test_row_order.c src/c/row_order.c -o /tmp/t && /tmp/t`.
 
 RGB colour and scenes are out of scope for the initial version.
 
