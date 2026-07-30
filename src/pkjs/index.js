@@ -13,9 +13,12 @@ var client = require('./tuya-client');
 var L = require('./tuya-lights');
 var S = require('./tuya-scenes');
 
+// All six Tuya data centers. Argentina/Latin America (and anything not in Tuya's
+// country table) lives in Western America — 'us'; see the config page's tip text.
 var REGION_HOST = {
   eu: 'https://openapi.tuyaeu.com', us: 'https://openapi.tuyaus.com',
-  cn: 'https://openapi.tuyacn.com', in: 'https://openapi.tuyain.com'
+  cn: 'https://openapi.tuyacn.com', in: 'https://openapi.tuyain.com',
+  'eu-w': 'https://openapi-weaz.tuyaeu.com', 'us-e': 'https://openapi-ueaz.tuyaus.com'
 };
 
 // In-memory model for this session.

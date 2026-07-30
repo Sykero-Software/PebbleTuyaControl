@@ -23,10 +23,12 @@ module.exports = [
           { "label": "Central Europe (eu)", "value": "eu" },
           { "label": "Western America (us)", "value": "us" },
           { "label": "China (cn)", "value": "cn" },
-          { "label": "India (in)", "value": "in" }
+          { "label": "India (in)", "value": "in" },
+          { "label": "Western Europe (eu-w)", "value": "eu-w" },
+          { "label": "Eastern America (us-e)", "value": "us-e" }
         ]
       },
-      { "type": "text", "defaultValue": "Tip: the Data Center must match the region where your Smart Life account is registered, or no lights will appear." },
+      { "type": "text", "defaultValue": "Tip: this is Tuya's <b>data center</b> — not your country. Your country maps to one of these six, and it must match your Cloud Project's data center or no lights will appear.<br><b>Western America</b> = all of the Americas (Argentina, Brazil, Chile, Mexico, US, …), Japan/Korea/South-East Asia, and any country Tuya doesn't list. <b>Central Europe</b> = Europe, most of Africa, Australia, the Middle East. <b>China</b> and <b>India</b> = those two countries only." },
       { "type": "text", "defaultValue": "Have Tuya <b>sensors</b> too (temperature, soil&nbsp;moisture, humidity, …)? The <b>Sykerö TimeStyle</b> watchface can show their live readings right on your watchface — it uses these very same Access&nbsp;ID / Access&nbsp;Secret / Data&nbsp;Center." }
     ]
   },
