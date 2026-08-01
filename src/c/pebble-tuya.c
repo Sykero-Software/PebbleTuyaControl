@@ -103,7 +103,7 @@ static void idle_fire(void *ctx) {
   s_idle_timer = NULL;
   APP_LOG(APP_LOG_LEVEL_INFO, "idle_fire: idle %ds elapsed -> exit to watchface", s_idle_timeout_sec);
   exit_reason_set(APP_EXIT_ACTION_PERFORMED_SUCCESSFULLY);
-  window_stack_pop_all(true);   // exits to the watchface; deinit() persists state
+  window_stack_pop_all(false);   // exits to the watchface; deinit() persists state
 }
 void idle_reset(void) {
   if (s_config_open) return;              // never (re)arm while the phone config page is open
@@ -489,7 +489,7 @@ void begin_auto_close(int index, const Light *prev) {
     window_set_window_handlers(s_closing_window, (WindowHandlers){ .load = closing_load, .unload = closing_unload });
     window_set_click_config_provider(s_closing_window, closing_click_config);
   }
-  if (window_stack_get_top_window() != s_closing_window) window_stack_push(s_closing_window, true);
+  if (window_stack_get_top_window() != s_closing_window) window_stack_push(s_closing_window, false);
   s_close_timer = app_timer_register(8000, close_timeout, NULL);   // revert+error if unconfirmed by then
 }
 
@@ -507,7 +507,7 @@ static void do_close(void) {
   s_close_pending_id[0] = '\0';
   // One-click action done: exit to the watchface, not back to the launcher/menu.
   exit_reason_set(APP_EXIT_ACTION_PERFORMED_SUCCESSFULLY);
-  window_stack_pop_all(true);   // exits the app -> deinit() persists state
+  window_stack_pop_all(false);   // exits the app -> deinit() persists state
   s_closing_window = NULL;      // drop our handle (app is exiting); avoids any double-destroy
 }
 
@@ -546,7 +546,7 @@ void begin_scene_run(int index) {
     window_set_window_handlers(s_closing_window, (WindowHandlers){ .load = closing_load, .unload = closing_unload });
     window_set_click_config_provider(s_closing_window, closing_click_config);
   }
-  if (window_stack_get_top_window() != s_closing_window) window_stack_push(s_closing_window, true);
+  if (window_stack_get_top_window() != s_closing_window) window_stack_push(s_closing_window, false);
   // Wait a moment: if auto-closing, long enough to receive CmdDone before exiting;
   // otherwise just a brief "Triggered" flash before returning to the list.
   s_close_timer = app_timer_register(s_scene_exit_after ? 8000 : 1200, scene_timeout, NULL);
@@ -575,7 +575,7 @@ static void init(void) {
   s_list_window = window_create();
   window_set_window_handlers(s_list_window, (WindowHandlers){ .load = list_load, .unload = list_unload,
     .appear = idle_appear, .disappear = idle_disappear });
-  window_stack_push(s_list_window, true);
+  window_stack_push(s_list_window, false);
 }
 
 static void deinit(void) {
@@ -587,6 +587,11 @@ static void deinit(void) {
   window_destroy(s_list_window);
 }
 
+// NOTE -- NO WINDOW ANIMATIONS. Every window_stack_push/pop below passes
+// `animated = false`. Reported on real hardware 2026-08-01 (Sykero Smart Alarm,
+// same firmware, same API): every in-app window transition showed a brief broken
+// -looking flash, and removing the slide is what fixed it. The emulator cannot
+// reproduce it, so do not "restore the polish" on the strength of a screenshot.
 int main(void) {
   init();
   app_event_loop();

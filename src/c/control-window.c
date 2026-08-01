@@ -118,7 +118,7 @@ void control_window_push(int index) {
       .appear = idle_appear, .disappear = idle_disappear });
     window_set_click_config_provider(s_ctrl_window, click_config);
   }
-  window_stack_push(s_ctrl_window, true);  // load fires -> render() for the new s_ctrl_id
+  window_stack_push(s_ctrl_window, false);  // load fires -> render() for the new s_ctrl_id
 }
 
 void control_window_deinit(void) {
